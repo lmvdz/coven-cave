@@ -1,0 +1,39 @@
+name: Desktop executor tray proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cave-4s8-desktop-executor-tray
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-executor-tray-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Intel macOS
+            runner: macos-15-intel
+          - label: Windows x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check native desktop shell
+        run: cargo check --tests
+      - name: Test executor supervisor
+        run: cargo test executor_supervisor --lib
+      - name: Verify formatting
+        run: cargo fmt --check
