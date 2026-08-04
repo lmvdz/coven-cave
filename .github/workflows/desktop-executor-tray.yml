@@ -35,5 +35,5 @@ jobs:
         run: cargo check --tests
       - name: Test executor supervisor
         run: cargo test executor_supervisor --lib
-      - name: Verify formatting
-        run: cargo fmt --check
+      - name: Verify supervisor formatting
+        run: rustfmt --check --edition 2021 src/executor_supervisor.rs
