@@ -37,3 +37,44 @@ jobs:
         run: cargo test executor_supervisor --lib
       - name: Verify supervisor formatting
         run: rustfmt --check --edition 2021 src/executor_supervisor.rs
+
+  package:
+    name: Package ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Intel macOS app
+            runner: macos-15-intel
+            bundles: app
+            artifact: coven-cave-executor-tray-intel-macos
+            path: src-tauri/target/release/bundle/macos/*.app
+          - label: Windows x64 MSI
+            runner: windows-2025
+            bundles: msi
+            artifact: coven-cave-executor-tray-windows-x64
+            path: src-tauri/target/release/bundle/msi/*.msi
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - name: Build unsigned test bundle
+        shell: bash
+        run: >-
+          pnpm exec tauri build
+          --bundles ${{ matrix.bundles }}
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - uses: actions/upload-artifact@v7.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 14
