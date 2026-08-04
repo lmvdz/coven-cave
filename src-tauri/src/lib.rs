@@ -50,6 +50,8 @@ mod discord_presence;
 #[cfg(desktop)]
 mod desktop_reachability;
 #[cfg(desktop)]
+mod executor_supervisor;
+#[cfg(desktop)]
 mod platform_lifecycle;
 #[cfg(all(desktop, target_os = "macos"))]
 mod microphone;
@@ -79,6 +81,8 @@ mod windows_process_job;
 
 #[cfg(desktop)]
 use desktop_reachability::*;
+#[cfg(desktop)]
+use executor_supervisor::*;
 #[cfg(desktop)]
 use platform_lifecycle::*;
 #[cfg(all(test, desktop))]
