@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "@/styles/coven-pulse.css";
 import { Icon } from "@/lib/icon";
+import { Button } from "@/components/ui/button";
 import { sessionStatusTone } from "@/lib/session-status";
 import { formatCost, formatTokens } from "@/lib/usage-format";
 
@@ -235,9 +236,14 @@ export function CovenPulse() {
       <header className="coven-pulse__header">
         <h1 id="coven-pulse-title">Pulse</h1>
         <div className="coven-pulse__header-actions">
-          <button type="button" className="coven-pulse__open focus-ring" onClick={() => void emitPulseIntent("pulse:open-cave")}>
+          <Button
+            variant="primary"
+            leadingIcon="ph:house-bold"
+            className="coven-pulse__open"
+            onClick={() => void emitPulseIntent("pulse:open-cave")}
+          >
             Open Cave
-          </button>
+          </Button>
           <button
             type="button"
             className="coven-pulse__refresh focus-ring"

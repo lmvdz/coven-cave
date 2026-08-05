@@ -22,7 +22,6 @@
   gap: var(--space-1);
 }
 
-.coven-pulse__open,
 .coven-pulse__close {
   border: 1px solid var(--border-hairline);
   color: var(--text-secondary);
@@ -31,13 +30,7 @@
 }
 
 .coven-pulse__open {
-  height: var(--space-8);
-  padding: 0 var(--space-3);
-  border-color: color-mix(in oklch, var(--accent-presence) 40%, var(--border-hairline));
-  border-radius: var(--radius-control);
-  color: var(--text-primary);
-  background: color-mix(in oklch, var(--accent-presence) 14%, var(--bg-raised));
-  font-size: var(--text-2xs);
+  flex: none;
 }
 
 .coven-pulse__close {
@@ -49,7 +42,6 @@
   border-radius: var(--radius-pill);
 }
 
-.coven-pulse__open:hover,
 .coven-pulse__close:hover {
   background: var(--bg-hover);
 }

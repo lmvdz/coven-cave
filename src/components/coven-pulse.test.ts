@@ -18,6 +18,8 @@ assert.doesNotMatch(component, /tokensPerSecond|throughput:/);
 assert.match(component, /pulse:dismiss/);
 assert.match(component, /pulse:open-cave/);
 assert.match(component, /coven-pulse__header-actions/);
+assert.match(component, /variant="primary"/);
+assert.match(component, /leadingIcon="ph:house-bold"/);
 assert.match(component, /aria-label="Close Coven Pulse"/);
 assert.doesNotMatch(component, /coven-pulse__footer/);
 assert.match(component, /pulse:executor-start/);
