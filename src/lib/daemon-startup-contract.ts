@@ -1,7 +1,7 @@
 import { exactSemver } from "./exact-semver.ts";
 
 /** The named daemon API versions Cave can safely adopt. */
-export const SUPPORTED_DAEMON_API_VERSIONS = new Set(["1", "v1"]);
+export const SUPPORTED_DAEMON_API_VERSIONS = new Set(["coven.daemon.v1", "1", "v1"]);
 
 export type DaemonStartupHealth = {
   ok?: unknown;
@@ -20,10 +20,11 @@ export type DaemonStartupCompatibility =
 
 /**
  * A listening socket is only a transport fact. Cave adopts a local daemon
- * only after the health document identifies a supported API and the same
- * executable version Cave is about to manage. This deliberately fails closed:
- * accepting a stale daemon can let an older runtime open newer persisted
- * state before its own migration guard gets a chance to refuse it.
+ * only after the health document identifies a supported API and a usable
+ * installed runtime. Release daemons must match that runtime exactly. Source
+ * builds use the workspace's intentional `0.0.0` sentinel, so their named API
+ * contract is the compatibility boundary and the installed version supplies
+ * the display version.
  */
 export function assessDaemonStartupCompatibility(
   health: DaemonStartupHealth | null | undefined,
@@ -62,6 +63,10 @@ export function assessDaemonStartupCompatibility(
       code: "invalid_runtime_version",
       diagnostic: "Cave could not verify the installed Coven runtime version. Repair or reinstall Coven before starting the daemon.",
     };
+  }
+
+  if (daemonVersion === "0.0.0") {
+    return { ok: true, daemonVersion: expectedVersion, apiVersion };
   }
 
   if (daemonVersion !== expectedVersion) {
