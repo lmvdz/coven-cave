@@ -486,7 +486,7 @@ pub fn run() {
             let tray_builder = TrayIconBuilder::with_id("cave-tray")
                 .icon(coven_tray_icon())
                 .menu(&tray_menu)
-                .show_menu_on_left_click(false)
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .tooltip("CovenCave")
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open_inbox" => {
@@ -558,15 +558,18 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // Left-click brings the main window forward; right-click
-                    // is reserved for the native menu.
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        focus_main_window(tray.app_handle());
+                    // macOS menu-bar items open their native menu on left-click.
+                    // Other desktops retain the existing left-click shortcut
+                    // that brings the main window forward.
+                    if !cfg!(target_os = "macos") {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            focus_main_window(tray.app_handle());
+                        }
                     }
                 });
 
