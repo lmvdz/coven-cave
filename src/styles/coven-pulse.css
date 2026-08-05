@@ -90,6 +90,10 @@
   color: var(--color-success);
 }
 
+.coven-pulse__orb--warning {
+  color: var(--color-warning);
+}
+
 .coven-pulse__orb--offline {
   color: var(--text-muted);
 }
@@ -337,6 +341,11 @@
 .coven-pulse__signal--online {
   background: var(--color-success);
   box-shadow: 0 0 0 var(--space-1) color-mix(in oklch, var(--color-success) 14%, transparent);
+}
+
+.coven-pulse__signal--warning {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 var(--space-1) color-mix(in oklch, var(--color-warning) 14%, transparent);
 }
 
 .coven-pulse__signal--offline {

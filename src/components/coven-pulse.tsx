@@ -12,10 +12,13 @@ const MINIMUM_REFRESH_FEEDBACK_MS = 500;
 type DaemonPulseStatus = {
   running?: boolean;
   availability?: string;
+  reason?: string;
   checkedAt?: string;
   target?: { mode?: "local" | "hub" | "unconfigured-hub" };
   executors?: Array<{ ok?: boolean }>;
 };
+
+type DaemonVisualState = "online" | "warning" | "offline";
 
 type PulseSession = {
   id?: string;
@@ -49,8 +52,15 @@ type LocalExecutorPulse = { state: string; owner: string; running: boolean; cont
 
 function connectionLabel(status: DaemonPulseStatus | null): string {
   if (!status) return "Unavailable";
+  if (status.availability === "incompatible") return "Update required";
   if (status.running !== true) return "Offline";
   return status.target?.mode === "hub" ? "Hub online" : "Local online";
+}
+
+function daemonVisualState(status: DaemonPulseStatus | null): DaemonVisualState {
+  if (status?.running === true) return "online";
+  if (status?.availability === "incompatible") return "warning";
+  return "offline";
 }
 
 function checkedLabel(value: string | undefined): string {
@@ -206,6 +216,8 @@ export function CovenPulse() {
   const executors = snapshot?.daemon?.executors ?? [];
   const availableExecutors = executors.filter((executor) => executor.ok === true).length;
   const daemonOnline = snapshot?.daemon?.running === true;
+  const daemonIncompatible = snapshot?.daemon?.availability === "incompatible";
+  const daemonState = daemonVisualState(snapshot?.daemon ?? null);
   const hasUsageReports = Boolean(
     snapshot?.usage && (snapshot.usage.tokenObservedTurns || snapshot.usage.costObservedTurns),
   );
@@ -256,7 +268,10 @@ export function CovenPulse() {
 
       {tab === "overview" ? (
         <section className="coven-pulse__overview" aria-label="Coven overview">
-          <div className={`coven-pulse__orb coven-pulse__orb--${daemonOnline ? "online" : "offline"}`}>
+          <div
+            className={`coven-pulse__orb coven-pulse__orb--${daemonState}`}
+            title={snapshot?.daemon?.reason}
+          >
             <Icon name="ph:heartbeat" aria-hidden />
             <strong>{loading ? "…" : connectionLabel(snapshot?.daemon ?? null)}</strong>
           </div>
@@ -289,11 +304,11 @@ export function CovenPulse() {
 
       {tab === "system" ? (
         <section className="coven-pulse__system" aria-label="System health">
-          <div className="coven-pulse__system-row"><span className={`coven-pulse__signal coven-pulse__signal--${daemonOnline ? "online" : "offline"}`} /><strong>{snapshot?.daemon?.target?.mode === "hub" ? "Hub" : "Daemon"}</strong><span>{connectionLabel(snapshot?.daemon ?? null)}</span></div>
+          <div className="coven-pulse__system-row" title={snapshot?.daemon?.reason}><span className={`coven-pulse__signal coven-pulse__signal--${daemonState}`} /><strong>{snapshot?.daemon?.target?.mode === "hub" ? "Hub" : "Daemon"}</strong><span>{connectionLabel(snapshot?.daemon ?? null)}</span></div>
           {snapshot?.daemon?.target?.mode !== "hub" ? (
             <div className="coven-pulse__controls">
-              <button className="focus-ring" type="button" disabled={action !== null || daemonOnline} onClick={() => void controlDaemon(false)}>Start</button>
-              <button className="focus-ring" type="button" disabled={action !== null || !daemonOnline} onClick={() => void controlDaemon(true)}>Restart</button>
+              <button className="focus-ring" type="button" disabled={action !== null || daemonOnline || daemonIncompatible} onClick={() => void controlDaemon(false)}>Start</button>
+              <button className="focus-ring" type="button" disabled={action !== null || (!daemonOnline && !daemonIncompatible)} onClick={() => void controlDaemon(true)}>Restart</button>
             </div>
           ) : null}
           <div className="coven-pulse__system-row"><span className={`coven-pulse__signal coven-pulse__signal--${localExecutor?.running ? "online" : "offline"}`} /><strong>Executor</strong><span>{localExecutor ? `${localExecutor.owner} · ${localExecutor.state}` : "Checking"}</span></div>

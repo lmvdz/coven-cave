@@ -77,6 +77,9 @@ function daemonPresentation(state: AboutDaemonState): {
   if (state.kind === "stopped") {
     return { label: "daemon stopped", detail: "Stopped", tone: "warning" };
   }
+  if (state.kind === "incompatible") {
+    return { label: "daemon incompatible", detail: "Update required", tone: "warning" };
+  }
   if (state.kind === "unreachable") {
     return { label: "daemon unreachable", detail: "Unreachable", tone: "danger" };
   }
