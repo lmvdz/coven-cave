@@ -112,21 +112,51 @@
 .coven-pulse__stat-strip {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  overflow: hidden;
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-card);
   background: var(--bg-raised);
 }
 
-.coven-pulse__stat-strip article {
+.coven-pulse__stat-tile {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-1);
+  border: 0;
+  border-radius: 0;
+  color: var(--text-primary);
+  background: transparent;
+  cursor: pointer;
 }
 
-.coven-pulse__stat-strip article + article {
+.coven-pulse__stat-tile:first-child {
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
+}
+
+.coven-pulse__stat-tile:last-child {
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+}
+
+.coven-pulse__stat-tile + .coven-pulse__stat-tile {
   border-left: 1px solid var(--border-hairline);
+}
+
+.coven-pulse__stat-tile[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.coven-pulse__stat-tile[aria-expanded="true"]::after {
+  position: absolute;
+  z-index: 1;
+  right: var(--space-3);
+  bottom: calc(var(--space-2) * -1);
+  left: var(--space-3);
+  height: var(--space-2);
+  border-right: 1px solid var(--border-hairline);
+  border-left: 1px solid var(--border-hairline);
+  background: var(--bg-hover);
+  content: "";
 }
 
 .coven-pulse__stat-strip svg {
@@ -142,6 +172,39 @@
 .coven-pulse__usage-glance span {
   color: var(--text-muted);
   font-size: var(--text-2xs);
+}
+
+.coven-pulse__insight {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-hover);
+}
+
+.coven-pulse__insight > div {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  text-align: center;
+}
+
+.coven-pulse__insight span {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+}
+
+.coven-pulse__insight strong {
+  overflow: hidden;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .coven-pulse__usage-glance {

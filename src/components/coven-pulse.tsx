@@ -48,6 +48,7 @@ type PulseSnapshot = {
 };
 
 type PulseTab = "overview" | "usage" | "system";
+type OverviewInsight = "sessions" | "executors" | "throughput";
 type ExecutorIntent = "pulse:executor-start" | "pulse:executor-stop" | "pulse:executor-restart";
 type LocalExecutorPulse = { state: string; owner: string; running: boolean; controllable: boolean };
 
@@ -87,6 +88,7 @@ export function CovenPulse() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [tab, setTab] = useState<PulseTab>("overview");
+  const [overviewInsight, setOverviewInsight] = useState<OverviewInsight | null>(null);
   const [localExecutor, setLocalExecutor] = useState<LocalExecutorPulse | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const [confirmingQuit, setConfirmingQuit] = useState(false);
@@ -232,6 +234,7 @@ export function CovenPulse() {
     ).length ?? 0,
     [snapshot],
   );
+  const visibleSessions = snapshot?.sessions.filter((session) => !session.archived_at).length ?? 0;
   const executors = snapshot?.daemon?.executors ?? [];
   const availableExecutors = executors.filter((executor) => executor.ok === true).length;
   const daemonOnline = snapshot?.daemon?.running === true;
@@ -324,10 +327,61 @@ export function CovenPulse() {
             <Icon name="ph:heartbeat" aria-hidden />
             <strong>{loading ? "…" : connectionLabel(snapshot?.daemon ?? null)}</strong>
           </div>
-          <div className="coven-pulse__stat-strip">
-            <article><Icon name="ph:chats-circle" aria-hidden /><strong>{loading ? "—" : runningSessions}</strong><span>Active</span></article>
-            <article><Icon name="ph:hard-drives" aria-hidden /><strong>{loading ? "—" : `${availableExecutors}/${executors.length}`}</strong><span>Executors</span></article>
-            <article><Icon name="ph:lightning-bold" aria-hidden /><strong>—</strong><span>tok/s</span></article>
+          <div className="coven-pulse__stat-stack">
+            <div className="coven-pulse__stat-strip">
+              <button
+                type="button"
+                className="coven-pulse__stat-tile focus-ring"
+                aria-expanded={overviewInsight === "sessions"}
+                aria-controls="coven-pulse-insight"
+                onClick={() => setOverviewInsight((current) => current === "sessions" ? null : "sessions")}
+              >
+                <Icon name="ph:chats-circle" aria-hidden /><strong>{loading ? "—" : runningSessions}</strong><span>Active</span>
+              </button>
+              <button
+                type="button"
+                className="coven-pulse__stat-tile focus-ring"
+                aria-expanded={overviewInsight === "executors"}
+                aria-controls="coven-pulse-insight"
+                onClick={() => setOverviewInsight((current) => current === "executors" ? null : "executors")}
+              >
+                <Icon name="ph:hard-drives" aria-hidden /><strong>{loading ? "—" : `${availableExecutors}/${executors.length}`}</strong><span>Executors</span>
+              </button>
+              <button
+                type="button"
+                className="coven-pulse__stat-tile focus-ring"
+                aria-expanded={overviewInsight === "throughput"}
+                aria-controls="coven-pulse-insight"
+                onClick={() => setOverviewInsight((current) => current === "throughput" ? null : "throughput")}
+              >
+                <Icon name="ph:lightning-bold" aria-hidden /><strong>—</strong><span>tok/s</span>
+              </button>
+            </div>
+            {overviewInsight ? (
+              <div className="coven-pulse__insight" id="coven-pulse-insight" role="region" aria-label={`${overviewInsight} details`}>
+                {overviewInsight === "sessions" ? (
+                  <>
+                    <div><span>Running</span><strong>{runningSessions}</strong></div>
+                    <div><span>Visible</span><strong>{visibleSessions}</strong></div>
+                    <div><span>Source</span><strong>{snapshot?.sessionsDegraded ? "Local" : "Live"}</strong></div>
+                  </>
+                ) : null}
+                {overviewInsight === "executors" ? (
+                  <>
+                    <div><span>Ready</span><strong>{availableExecutors}</strong></div>
+                    <div><span>Configured</span><strong>{executors.length}</strong></div>
+                    <div><span>Unavailable</span><strong>{executors.length - availableExecutors}</strong></div>
+                  </>
+                ) : null}
+                {overviewInsight === "throughput" ? (
+                  <>
+                    <div><span>Live rate</span><strong>—</strong></div>
+                    <div><span>Coverage</span><strong>Awaiting</strong></div>
+                    <div><span>Source</span><strong>Harnesses</strong></div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           {hasUsageReports ? (
             <div className="coven-pulse__usage-glance">
