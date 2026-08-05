@@ -238,6 +238,29 @@
   border-top: 1px solid var(--border-hairline);
 }
 
+.coven-pulse__system .coven-pulse__controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in oklch, var(--bg-hover) 45%, transparent);
+}
+
+.coven-pulse__controls button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  background: var(--bg-raised);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+.coven-pulse__controls button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .coven-pulse__system > div > span:last-child,
 .coven-pulse__system p {
   color: var(--text-muted);

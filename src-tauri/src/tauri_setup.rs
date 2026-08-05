@@ -605,7 +605,8 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             let _tray = tray_builder.build(app)?;
 
-            executor_supervisor.start_tray_monitor(app.handle().clone(), executor_controls);
+            executor_supervisor
+                .start_tray_monitor(app.handle().clone(), executor_controls.clone());
 
             let app_handle = app.handle().clone();
             app.listen("quick-chat:open-session", move |_| {
@@ -619,6 +620,65 @@ pub fn run() {
             app.listen("pulse:open-cave", move |_| {
                 hide_pulse_window(&pulse_open_handle);
                 focus_main_window(&pulse_open_handle);
+            });
+            let pulse_executor_start_handle = app.handle().clone();
+            let pulse_executor_start_supervisor = Arc::clone(&executor_supervisor);
+            let pulse_executor_start_controls = executor_controls.clone();
+            app.listen("pulse:executor-start", move |_| {
+                let handle = pulse_executor_start_handle.clone();
+                let supervisor = Arc::clone(&pulse_executor_start_supervisor);
+                let controls = pulse_executor_start_controls.clone();
+                let _ = controls.apply(&ExecutorDisplayState::Starting, false);
+                thread::spawn(move || {
+                    if let Err(error) = supervisor.start() {
+                        log::warn!("[cave] Pulse executor start failed: {error}");
+                    }
+                    refresh_executor_tray_once(&handle, &supervisor, &controls);
+                });
+            });
+            let pulse_executor_stop_handle = app.handle().clone();
+            let pulse_executor_stop_supervisor = Arc::clone(&executor_supervisor);
+            let pulse_executor_stop_controls = executor_controls.clone();
+            app.listen("pulse:executor-stop", move |_| {
+                let handle = pulse_executor_stop_handle.clone();
+                let supervisor = Arc::clone(&pulse_executor_stop_supervisor);
+                let controls = pulse_executor_stop_controls.clone();
+                let _ = controls.apply(&ExecutorDisplayState::Stopping, true);
+                thread::spawn(move || {
+                    if let Err(error) = supervisor.stop() {
+                        log::warn!("[cave] Pulse executor stop failed: {error}");
+                    }
+                    refresh_executor_tray_once(&handle, &supervisor, &controls);
+                });
+            });
+            let pulse_executor_restart_handle = app.handle().clone();
+            let pulse_executor_restart_supervisor = Arc::clone(&executor_supervisor);
+            let pulse_executor_restart_controls = executor_controls.clone();
+            app.listen("pulse:executor-restart", move |_| {
+                let handle = pulse_executor_restart_handle.clone();
+                let supervisor = Arc::clone(&pulse_executor_restart_supervisor);
+                let controls = pulse_executor_restart_controls.clone();
+                let _ = controls.apply(&ExecutorDisplayState::Stopping, true);
+                thread::spawn(move || {
+                    match supervisor.stop() {
+                        Ok(ExecutorStopOutcome::Stopped) => {
+                            apply_executor_tray_state(
+                                &handle,
+                                controls.clone(),
+                                ExecutorDisplayState::Starting,
+                                false,
+                            );
+                            if let Err(error) = supervisor.start() {
+                                log::warn!("[cave] Pulse executor restart failed: {error}");
+                            }
+                        }
+                        Ok(ExecutorStopOutcome::Draining) => {
+                            log::warn!("[cave] Pulse executor restart is waiting for work to drain");
+                        }
+                        Err(error) => log::warn!("[cave] Pulse executor stop failed: {error}"),
+                    }
+                    refresh_executor_tray_once(&handle, &supervisor, &controls);
+                });
             });
 
             // Notch state machine — the notch webview only emits intents

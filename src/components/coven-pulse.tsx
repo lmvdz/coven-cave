@@ -44,6 +44,8 @@ type PulseSnapshot = {
 };
 
 type PulseTab = "overview" | "usage" | "system";
+type ExecutorIntent = "pulse:executor-start" | "pulse:executor-stop" | "pulse:executor-restart";
+type LocalExecutorPulse = { state: string; owner: string; running: boolean; controllable: boolean };
 
 function connectionLabel(status: DaemonPulseStatus | null): string {
   if (!status) return "Unavailable";
@@ -58,7 +60,7 @@ function checkedLabel(value: string | undefined): string {
   return `Checked ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-async function emitPulseIntent(event: "pulse:dismiss" | "pulse:open-cave"): Promise<void> {
+async function emitPulseIntent(event: "pulse:dismiss" | "pulse:open-cave" | ExecutorIntent): Promise<void> {
   try {
     const { emit } = await import("@tauri-apps/api/event");
     await emit(event);
@@ -73,6 +75,8 @@ export function CovenPulse() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [tab, setTab] = useState<PulseTab>("overview");
+  const [localExecutor, setLocalExecutor] = useState<LocalExecutorPulse | null>(null);
+  const [action, setAction] = useState<string | null>(null);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const startedAt = performance.now();
@@ -161,6 +165,37 @@ export function CovenPulse() {
     window.addEventListener("keydown", dismiss);
     return () => window.removeEventListener("keydown", dismiss);
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) => listen<LocalExecutorPulse>("pulse:executor-status", (event) => {
+        setLocalExecutor(event.payload);
+        setAction(null);
+      }))
+      .then((dispose) => { unlisten = dispose; })
+      .catch(() => undefined);
+    return () => unlisten?.();
+  }, []);
+
+  const controlExecutor = useCallback((intent: ExecutorIntent) => {
+    setAction(intent);
+    void emitPulseIntent(intent);
+  }, []);
+
+  const controlDaemon = useCallback(async (restart: boolean) => {
+    setAction(restart ? "daemon-restart" : "daemon-start");
+    try {
+      await fetch("/api/daemon/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ restart }),
+      });
+      await refresh();
+    } finally {
+      setAction(null);
+    }
+  }, [refresh]);
 
   const runningSessions = useMemo(
     () => snapshot?.sessions.filter(
@@ -254,8 +289,20 @@ export function CovenPulse() {
 
       {tab === "system" ? (
         <section className="coven-pulse__system" aria-label="System health">
-          <div><span className={`coven-pulse__signal coven-pulse__signal--${daemonOnline ? "online" : "offline"}`} /><strong>Daemon</strong><span>{connectionLabel(snapshot?.daemon ?? null)}</span></div>
-          <div><span className={`coven-pulse__signal coven-pulse__signal--${executors.length && availableExecutors === executors.length ? "online" : "offline"}`} /><strong>Executors</strong><span>{executors.length ? `${availableExecutors}/${executors.length}` : "Not configured"}</span></div>
+          <div className="coven-pulse__system-row"><span className={`coven-pulse__signal coven-pulse__signal--${daemonOnline ? "online" : "offline"}`} /><strong>{snapshot?.daemon?.target?.mode === "hub" ? "Hub" : "Daemon"}</strong><span>{connectionLabel(snapshot?.daemon ?? null)}</span></div>
+          {snapshot?.daemon?.target?.mode !== "hub" ? (
+            <div className="coven-pulse__controls">
+              <button className="focus-ring" type="button" disabled={action !== null || daemonOnline} onClick={() => void controlDaemon(false)}>Start</button>
+              <button className="focus-ring" type="button" disabled={action !== null || !daemonOnline} onClick={() => void controlDaemon(true)}>Restart</button>
+            </div>
+          ) : null}
+          <div className="coven-pulse__system-row"><span className={`coven-pulse__signal coven-pulse__signal--${localExecutor?.running ? "online" : "offline"}`} /><strong>Executor</strong><span>{localExecutor ? `${localExecutor.owner} · ${localExecutor.state}` : "Checking"}</span></div>
+          <div className="coven-pulse__controls">
+            <button className="focus-ring" type="button" disabled={action !== null || !localExecutor?.controllable || localExecutor.running} onClick={() => controlExecutor("pulse:executor-start")}>Start</button>
+            <button className="focus-ring" type="button" disabled={action !== null || !localExecutor?.controllable || !localExecutor.running} onClick={() => controlExecutor("pulse:executor-stop")}>Stop</button>
+            <button className="focus-ring" type="button" disabled={action !== null || !localExecutor?.controllable || !localExecutor.running} onClick={() => controlExecutor("pulse:executor-restart")}>Restart</button>
+          </div>
+          <div className="coven-pulse__system-row"><span className={`coven-pulse__signal coven-pulse__signal--${executors.length && availableExecutors === executors.length ? "online" : "offline"}`} /><strong>Fleet endpoints</strong><span>{executors.length ? `${availableExecutors}/${executors.length}` : "Not configured"}</span></div>
           <div><span className={`coven-pulse__signal coven-pulse__signal--${snapshot?.sessionsDegraded ? "offline" : "online"}`} /><strong>Sessions</strong><span>{snapshot?.sessionsDegraded ? "Local view" : "Live view"}</span></div>
           <p>{checkedLabel(snapshot?.daemon?.checkedAt)}</p>
         </section>

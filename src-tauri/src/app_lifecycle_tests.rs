@@ -135,7 +135,7 @@ fn pulse_capability_is_event_only_and_loopback_scoped() {
     assert_eq!(capability["webviews"], serde_json::json!(["pulse"]));
     assert_eq!(
         capability["permissions"],
-        serde_json::json!(["core:event:allow-emit"])
+        serde_json::json!(["core:event:allow-emit", "core:event:allow-listen"])
     );
     let urls = capability["remote"]["urls"]
         .as_array()
