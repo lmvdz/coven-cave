@@ -37,6 +37,7 @@ import { addRecentColor, getRecentColors } from "@/lib/recent-colors";
 import { rgbaBytesToHex } from "@/lib/theme-token-hex";
 import { FontSettings } from "./settings-fonts";
 import { DaemonSection } from "./settings-daemon";
+import { FleetSection } from "./settings-fleet";
 import { SettingsTabbed } from "./settings-section-tabs";
 import type { TabItem } from "@/components/ui/tabs";
 import { ProfileSection } from "./settings-profile";
@@ -339,6 +340,7 @@ export function SettingsShell() {
               omnigentSettings={<OmnigentSettingsGroup />}
             />
           )}
+          {section === "fleet" && <FleetSection />}
           {section === "mobile"   && <PhoneSection onUseAsHub={(url) => { setSuggestedHubUrl(url); openSection("daemon"); }} />}
           {section === "appearance" && <AppearanceSection scrollTarget={scrollTarget} />}
           {section === "about"    && <AboutSection />}

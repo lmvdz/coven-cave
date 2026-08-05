@@ -12,12 +12,12 @@ import {
 // ── settings-sections catalog (pure) ─────────────────────────────────────────
 
 test("every section has full overview metadata + a highlight strip", () => {
-  const ids = ["profile", "general", "voice", "daemon", "mobile", "appearance", "about"];
+  const ids = ["profile", "general", "voice", "daemon", "fleet", "mobile", "appearance", "about"];
   assert.deepEqual(SECTIONS.map((s) => s.id), ids, "the section set matches the shell nav");
   for (const s of SECTIONS) {
     assert.ok(s.label && s.icon.startsWith("ph:") && s.description.length > 0, `${s.id} has label/icon/description`);
-    if (s.id === "voice") {
-      assert.equal(s.accent, "var(--accent-presence)", "Voice follows the theme-aware presence token");
+    if (s.id === "voice" || s.id === "fleet") {
+      assert.equal(s.accent, "var(--accent-presence)", `${s.label} follows the theme-aware presence token`);
     } else {
       assert.match(s.accent, /^#[0-9a-f]{6}$/i, `${s.id} keeps its established accent`);
     }

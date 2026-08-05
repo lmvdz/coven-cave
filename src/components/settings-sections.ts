@@ -8,6 +8,7 @@ export type Section =
   | "general"
   | "voice"
   | "daemon"
+  | "fleet"
   | "mobile"
   | "appearance"
   | "about";
@@ -25,6 +26,7 @@ export const SECTIONS: SectionMeta[] = [
   { id: "general", label: "General", icon: "ph:sliders-horizontal", description: "Workspace, startup, and app-wide defaults.", accent: "#9386d0" },
   { id: "voice", label: "Voice", icon: "ph:waveform", description: "Providers, voices, local speech, and defaults for new familiars.", accent: "var(--accent-presence)" },
   { id: "daemon", label: "Daemon", icon: "ph:terminal-window", description: "Local runtime status and process controls.", accent: "#69d6a6" },
+  { id: "fleet", label: "Fleet", icon: "ph:share-network-bold", description: "Trusted devices, roles, and executor sharing.", accent: "var(--accent-presence)" },
   { id: "mobile", label: "Phone", icon: "ph:device-mobile", description: "Native iOS handoff over your Tailscale network.", accent: "#73d9d0" },
   { id: "appearance", label: "Appearance", icon: "ph:paint-brush", description: "Theme, typography, and reading controls.", accent: "#ff9fb5" },
   { id: "about", label: "About", icon: "ph:info", description: "Version, updates, and project links.", accent: "#b8d8ff" },
@@ -35,6 +37,7 @@ export const SECTION_HIGHLIGHTS: Record<Section, string[]> = {
   general: ["Workspace path", "Encrypted backup", "Launch behavior"],
   voice: ["Provider readiness", "Voices & models", "New familiar defaults"],
   daemon: ["Runtime health", "Local/hub routing", "Socket & version"],
+  fleet: ["Device roles", "Trusted pairing", "Executor sharing"],
   mobile: ["Mobile mode", "Tailscale handoff", "Native iOS guide"],
   appearance: ["Theme & colors", "Typography", "Reading comfort"],
   about: ["App version", "Tool updates", "Project links"],
@@ -63,6 +66,8 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
   { section: "daemon", group: "Status", keywords: "daemon status running start stop restart hub server executor private network tailscale" },
   { section: "daemon", group: "Connection", keywords: "daemon hub server executor private network tailscale remote multihost multi host" },
   { section: "daemon", group: "Info", keywords: "daemon info version socket pid api" },
+  { section: "fleet", group: "This device", keywords: "fleet role hub executor both lifecycle start stop restart drain resume sharing" },
+  { section: "fleet", group: "Find devices", keywords: "tailscale discover pair approve enrollment credential trusted revoke" },
   { section: "mobile", group: "Pair", keywords: "phone mobile connect qr pair tailscale" },
   { section: "mobile", group: "Why there’s no password", keywords: "password security auth login" },
   { section: "mobile", group: "Get the app", keywords: "app download ios testflight install" },
