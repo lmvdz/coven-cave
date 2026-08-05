@@ -100,7 +100,7 @@ fn pulse_geometry_anchors_below_or_above_and_clamps_to_monitor() {
     );
     assert_eq!(
         pulse_position((900.0, 776.0, 20.0, 24.0), (0.0, 0.0, 1000.0, 800.0), false,),
-        (660.0, 348.0)
+        (660.0, 308.0)
     );
     assert_eq!(
         pulse_position(
@@ -148,6 +148,14 @@ fn pulse_capability_is_event_only_and_loopback_scoped() {
                 || url.starts_with(r"http://[\:\:1]:")
         })
     }));
+}
+
+#[test]
+fn pulse_stays_hidden_until_the_document_finishes_loading() {
+    let source = include_str!("window_geometry.rs");
+    assert!(source.contains(".visible(false)"));
+    assert!(source.contains("PageLoadEvent::Finished"));
+    assert!(source.contains("window.show()"));
 }
 
 // The main window's auth bridge strips covenCaveToken from the visible URL

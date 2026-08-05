@@ -53,4 +53,16 @@ assert.match(
   "Aggregate local usage must explicitly disclose that harness coverage is incomplete",
 );
 
+assert.match(
+  route,
+  /usageByHarness/,
+  "Pulse usage should be grouped by harness without exposing conversation contents",
+);
+
+assert.match(
+  route,
+  /quota:\s*\{ availability: "unreported" as const \}/,
+  "OAuth quota must remain unreported until a harness supplies authoritative limits",
+);
+
 console.log("chat-usage-plan-ui.test.ts: ok");

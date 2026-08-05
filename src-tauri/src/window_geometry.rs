@@ -11,7 +11,7 @@ pub(super) const PULSE_WINDOW_LABEL: &str = "pulse";
 #[cfg(desktop)]
 pub(super) const PULSE_WIDTH: f64 = 340.0;
 #[cfg(desktop)]
-pub(super) const PULSE_HEIGHT: f64 = 420.0;
+pub(super) const PULSE_HEIGHT: f64 = 460.0;
 #[cfg(desktop)]
 const PULSE_GAP: f64 = 8.0;
 
@@ -334,8 +334,16 @@ pub(super) fn show_pulse_from_main(
         .always_on_top(true)
         .skip_taskbar(true)
         .position(x, y)
+        .visible(false)
         .shadow(true)
-        .disable_drag_drop_handler();
+        .disable_drag_drop_handler()
+        .on_page_load(move |window, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                let _ = window.show();
+                let _ = window.set_focus();
+                arm_pulse_dismissal(window.app_handle().clone(), dismissal_generation);
+            }
+        });
     #[cfg(target_os = "macos")]
     let builder = builder.transparent(true);
 
@@ -350,9 +358,8 @@ pub(super) fn show_pulse_from_main(
                     log::warn!("[cave] Pulse vibrancy unavailable: {error}");
                 }
             }
-            let _ = window.show();
-            let _ = window.set_focus();
-            arm_pulse_dismissal(app.clone(), dismissal_generation);
+            // The page-load callback reveals the window only after the first
+            // document has painted, avoiding a blank native panel on cold load.
         }
         Err(error) => log::warn!("[cave] failed to open Pulse window: {error}"),
     }

@@ -2,7 +2,7 @@
   min-height: 100vh;
   overflow: auto;
   box-sizing: border-box;
-  padding: var(--space-5);
+  padding: var(--space-3);
   color: var(--text-primary);
   background: var(--bg-panel);
   font-family: var(--font-sans);
@@ -13,7 +13,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .coven-pulse__eyebrow,
@@ -27,11 +27,227 @@
 }
 
 .coven-pulse h1 {
-  margin: var(--space-1) 0 0;
+  margin: 0;
   font-family: var(--font-serif);
   font-size: var(--text-xl);
   font-weight: 600;
   line-height: var(--leading-tight);
+}
+
+.coven-pulse__tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+}
+
+.coven-pulse__tabs button {
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  background: transparent;
+  font-size: var(--text-xs);
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.coven-pulse__tabs button[aria-current="page"] {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.coven-pulse__overview,
+.coven-pulse__usage,
+.coven-pulse__system {
+  margin-top: var(--space-3);
+}
+
+.coven-pulse__overview {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.coven-pulse__orb {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.coven-pulse__orb svg {
+  width: var(--space-10);
+  height: var(--space-10);
+  padding: var(--space-2);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-pill);
+}
+
+.coven-pulse__orb--online {
+  color: var(--color-success);
+}
+
+.coven-pulse__orb--offline {
+  color: var(--text-muted);
+}
+
+.coven-pulse__orb strong {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.coven-pulse__stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-raised);
+}
+
+.coven-pulse__stat-strip article {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-1);
+}
+
+.coven-pulse__stat-strip article + article {
+  border-left: 1px solid var(--border-hairline);
+}
+
+.coven-pulse__stat-strip svg {
+  color: var(--text-muted);
+}
+
+.coven-pulse__stat-strip strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+}
+
+.coven-pulse__stat-strip span,
+.coven-pulse__usage-glance span {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+}
+
+.coven-pulse__usage-glance {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-raised);
+}
+
+.coven-pulse__usage-glance strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.coven-pulse__usage {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.coven-pulse__harness {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-raised);
+}
+
+.coven-pulse__harness > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.coven-pulse__harness strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.coven-pulse__bar {
+  width: 100%;
+  height: var(--space-2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  appearance: none;
+}
+
+.coven-pulse__bar::-webkit-progress-bar {
+  background: var(--bg-hover);
+}
+
+.coven-pulse__bar::-webkit-progress-value {
+  border-radius: var(--radius-pill);
+  background: var(--accent-presence);
+}
+
+.coven-pulse__visual-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-3);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.coven-pulse__visual-empty svg {
+  width: var(--space-10);
+  height: var(--space-10);
+}
+
+.coven-pulse__visual-empty strong {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.coven-pulse__visual-empty span {
+  font-size: var(--text-xs);
+}
+
+.coven-pulse__system {
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-raised);
+}
+
+.coven-pulse__system > div {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.coven-pulse__system > div + div {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.coven-pulse__system > div > span:last-child,
+.coven-pulse__system p {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.coven-pulse__system p {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-hairline);
 }
 
 .coven-pulse__refresh {
@@ -77,7 +293,7 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-3);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-card);
   background: var(--bg-raised);
@@ -158,7 +374,7 @@
 .coven-pulse__metric {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-4);
+  padding: var(--space-3);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-card);
   background: var(--bg-raised);
@@ -171,9 +387,22 @@
   font-variant-numeric: tabular-nums;
 }
 
+.coven-pulse__metric--wide {
+  grid-column: 1 / -1;
+}
+
+.coven-pulse__metric--empty {
+  gap: var(--space-1);
+}
+
+.coven-pulse__metric--empty > strong {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
 .coven-pulse__unavailable {
   margin-top: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-card);
   background: var(--bg-raised);

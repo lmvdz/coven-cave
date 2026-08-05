@@ -65,8 +65,8 @@ async function usageTurnsForPlan(args: {
   model?: string;
   startsAt: string;
   endsAt: string;
-}): Promise<TurnUsageLike[]> {
-  const turns: TurnUsageLike[] = [];
+}): Promise<Array<TurnUsageLike & { harness?: string }>> {
+  const turns: Array<TurnUsageLike & { harness?: string }> = [];
   const rows = await listConversations();
   for (const row of rows) {
     if (args.familiarId && row.familiarId !== args.familiarId) continue;
@@ -76,7 +76,7 @@ async function usageTurnsForPlan(args: {
       if (turn.role !== "assistant") continue;
       if (!inPeriod(turn.createdAt, args.startsAt, args.endsAt)) continue;
       if (args.model && !turnBelongsToModel(turn, conversation, args.model)) continue;
-      turns.push({ usage: turn.usage, costUsd: turn.costUsd });
+      turns.push({ usage: turn.usage, costUsd: turn.costUsd, harness: conversation.harness });
     }
   }
 
@@ -86,7 +86,7 @@ async function usageTurnsForPlan(args: {
       for (const turn of conversation.turns) {
         if (turn.role !== "assistant") continue;
         if (!inPeriod(turn.createdAt, args.startsAt, args.endsAt)) continue;
-        turns.push({ usage: turn.usage, costUsd: turn.costUsd });
+        turns.push({ usage: turn.usage, costUsd: turn.costUsd, harness: conversation.harness });
       }
     }
   }
@@ -134,6 +134,20 @@ export async function GET(req: Request) {
 
   const tokenObservedTurns = turns.filter((turn) => turn.usage).length;
   const costObservedTurns = turns.filter((turn) => typeof turn.costUsd === "number").length;
+  const usageByHarness = allConversations
+    ? Array.from(new Set(turns.map((turn) => turn.harness?.trim()).filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((harness) => {
+          const harnessTurns = turns.filter((turn) => turn.harness?.trim() === harness);
+          return {
+            harness,
+            totals: aggregateTurnUsage(harnessTurns),
+            tokenObservedTurns: harnessTurns.filter((turn) => turn.usage).length,
+            costObservedTurns: harnessTurns.filter((turn) => typeof turn.costUsd === "number").length,
+            quota: { availability: "unreported" as const },
+          };
+        })
+    : undefined;
   return NextResponse.json({
     ok: true,
     snapshot,
@@ -144,5 +158,6 @@ export async function GET(req: Request) {
       costObservedTurns,
       complete: false,
     },
+    ...(usageByHarness ? { usageByHarness } : {}),
   });
 }

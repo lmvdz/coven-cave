@@ -7,6 +7,7 @@ import { sessionStatusTone } from "@/lib/session-status";
 import { formatCost, formatTokens } from "@/lib/usage-format";
 
 const REFRESH_INTERVAL_MS = 10_000;
+const MINIMUM_REFRESH_FEEDBACK_MS = 500;
 
 type DaemonPulseStatus = {
   running?: boolean;
@@ -31,8 +32,18 @@ type PulseSnapshot = {
     costUsd: number;
     tokenObservedTurns: number;
     costObservedTurns: number;
+    byHarness: Array<{
+      harness: string;
+      totalTokens: number;
+      costUsd: number;
+      tokenObservedTurns: number;
+      costObservedTurns: number;
+      quotaAvailable: boolean;
+    }>;
   } | null;
 };
+
+type PulseTab = "overview" | "usage" | "system";
 
 function connectionLabel(status: DaemonPulseStatus | null): string {
   if (!status) return "Unavailable";
@@ -61,8 +72,10 @@ export function CovenPulse() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
+  const [tab, setTab] = useState<PulseTab>("overview");
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const startedAt = performance.now();
     setRefreshing(true);
     try {
       const [daemonResponse, sessionsResponse, usageResponse] = await Promise.all([
@@ -83,6 +96,13 @@ export function CovenPulse() {
         ? await usageResponse.json().catch(() => null) as {
             snapshot?: { totals?: { totalTokens?: number; costUsd?: number } };
             coverage?: { tokenObservedTurns?: number; costObservedTurns?: number };
+            usageByHarness?: Array<{
+              harness?: string;
+              totals?: { totalTokens?: number; costUsd?: number };
+              tokenObservedTurns?: number;
+              costObservedTurns?: number;
+              quota?: { availability?: string };
+            }>;
           } | null
         : null;
       if (signal?.aborted) return;
@@ -95,6 +115,16 @@ export function CovenPulse() {
           costUsd: usagePayload.snapshot.totals.costUsd ?? 0,
           tokenObservedTurns: usagePayload.coverage.tokenObservedTurns ?? 0,
           costObservedTurns: usagePayload.coverage.costObservedTurns ?? 0,
+          byHarness: Array.isArray(usagePayload.usageByHarness)
+            ? usagePayload.usageByHarness.flatMap((row) => row.harness ? [{
+                harness: row.harness,
+                totalTokens: row.totals?.totalTokens ?? 0,
+                costUsd: row.totals?.costUsd ?? 0,
+                tokenObservedTurns: row.tokenObservedTurns ?? 0,
+                costObservedTurns: row.costObservedTurns ?? 0,
+                quotaAvailable: row.quota?.availability === "authoritative",
+              }] : [])
+            : [],
         } : null,
       });
       setError(!daemonResponse.ok && !sessionsResponse.ok && !usageResponse.ok);
@@ -102,6 +132,10 @@ export function CovenPulse() {
       if (!signal?.aborted) setError(true);
     } finally {
       if (!signal?.aborted) {
+        const remaining = MINIMUM_REFRESH_FEEDBACK_MS - (performance.now() - startedAt);
+        if (remaining > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, remaining));
+        }
         setLoading(false);
         setRefreshing(false);
       }
@@ -137,30 +171,47 @@ export function CovenPulse() {
   const executors = snapshot?.daemon?.executors ?? [];
   const availableExecutors = executors.filter((executor) => executor.ok === true).length;
   const daemonOnline = snapshot?.daemon?.running === true;
+  const hasUsageReports = Boolean(
+    snapshot?.usage && (snapshot.usage.tokenObservedTurns || snapshot.usage.costObservedTurns),
+  );
   const tokenLabel = snapshot?.usage?.tokenObservedTurns
     ? formatTokens(snapshot.usage.totalTokens) ?? "Unreported"
     : "Unreported";
   const recordedCostLabel = snapshot?.usage?.costObservedTurns
     ? formatCost(snapshot.usage.costUsd) ?? "$0.00"
     : "Unreported";
+  const harnessUsage = snapshot?.usage?.byHarness ?? [];
+  const largestHarnessTotal = Math.max(1, ...harnessUsage.map((row) => row.totalTokens));
 
   return (
     <main className="coven-pulse" aria-labelledby="coven-pulse-title">
       <header className="coven-pulse__header">
-        <div>
-          <p className="coven-pulse__eyebrow">Local control room</p>
-          <h1 id="coven-pulse-title">Coven Pulse</h1>
-        </div>
+        <h1 id="coven-pulse-title">Pulse</h1>
         <button
           type="button"
           className="coven-pulse__refresh focus-ring"
           onClick={() => void refresh()}
           disabled={refreshing}
+          aria-busy={refreshing}
           aria-label="Refresh Coven Pulse"
         >
           <Icon name="ph:arrow-clockwise-bold" aria-hidden />
         </button>
       </header>
+
+      <nav className="coven-pulse__tabs" aria-label="Pulse views">
+        {(["overview", "usage", "system"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            className="focus-ring"
+            aria-current={tab === view ? "page" : undefined}
+            onClick={() => setTab(view)}
+          >
+            {view}
+          </button>
+        ))}
+      </nav>
 
       {error ? (
         <p className="coven-pulse__notice" role="alert">
@@ -168,52 +219,47 @@ export function CovenPulse() {
         </p>
       ) : null}
 
-      <section className="coven-pulse__connection" aria-label="Coven connection">
-        <span
-          className={`coven-pulse__signal coven-pulse__signal--${daemonOnline ? "online" : "offline"}`}
-          aria-hidden="true"
-        />
-        <div className="coven-pulse__connection-copy">
-          <strong>{loading ? "Checking…" : connectionLabel(snapshot?.daemon ?? null)}</strong>
-          <span>{checkedLabel(snapshot?.daemon?.checkedAt)}</span>
-        </div>
-        <Icon name="ph:heartbeat" aria-hidden />
-      </section>
+      {tab === "overview" ? (
+        <section className="coven-pulse__overview" aria-label="Coven overview">
+          <div className={`coven-pulse__orb coven-pulse__orb--${daemonOnline ? "online" : "offline"}`}>
+            <Icon name="ph:heartbeat" aria-hidden />
+            <strong>{loading ? "…" : connectionLabel(snapshot?.daemon ?? null)}</strong>
+          </div>
+          <div className="coven-pulse__stat-strip">
+            <article><Icon name="ph:chats-circle" aria-hidden /><strong>{loading ? "—" : runningSessions}</strong><span>Active</span></article>
+            <article><Icon name="ph:hard-drives" aria-hidden /><strong>{loading ? "—" : `${availableExecutors}/${executors.length}`}</strong><span>Executors</span></article>
+            <article><Icon name="ph:lightning-bold" aria-hidden /><strong>—</strong><span>tok/s</span></article>
+          </div>
+          <div className="coven-pulse__usage-glance">
+            <span>Month</span>
+            <strong>{loading ? "—" : hasUsageReports ? tokenLabel : "No reports"}</strong>
+            <span>{hasUsageReports ? recordedCostLabel : ""}</span>
+          </div>
+        </section>
+      ) : null}
 
-      <section className="coven-pulse__metrics" aria-label="Live Coven activity">
-        <article className="coven-pulse__metric">
-          <span className="coven-pulse__metric-label">Active sessions</span>
-          <strong>{loading ? "—" : runningSessions}</strong>
-          <span>{snapshot?.sessionsDegraded ? "Local view" : "Live view"}</span>
-        </article>
-        <article className="coven-pulse__metric">
-          <span className="coven-pulse__metric-label">Executors</span>
-          <strong>{loading ? "—" : `${availableExecutors}/${executors.length}`}</strong>
-          <span>Configured endpoints</span>
-        </article>
-        <article className="coven-pulse__metric">
-          <span className="coven-pulse__metric-label">Tokens this month</span>
-          <strong>{loading ? "—" : tokenLabel}</strong>
-          <span>Recorded locally · partial</span>
-        </article>
-        <article className="coven-pulse__metric">
-          <span className="coven-pulse__metric-label">Reported cost</span>
-          <strong>{loading ? "—" : recordedCostLabel}</strong>
-          <span>Harness-reported · partial</span>
-        </article>
-      </section>
+      {tab === "usage" ? (
+        <section className="coven-pulse__usage" aria-label="Usage by harness">
+          {harnessUsage.length ? harnessUsage.map((row) => (
+            <article key={row.harness} className="coven-pulse__harness">
+              <div><strong>{row.harness}</strong><span>{formatTokens(row.totalTokens) ?? "—"}</span></div>
+              <progress className="coven-pulse__bar" max={largestHarnessTotal} value={row.totalTokens} aria-label={`${row.harness} relative recorded usage`} />
+              <div><span>{row.costObservedTurns ? formatCost(row.costUsd) ?? "$0.00" : "Cost —"}</span><span>{row.quotaAvailable ? "Quota live" : "OAuth quota —"}</span></div>
+            </article>
+          )) : (
+            <div className="coven-pulse__visual-empty"><Icon name="ph:chart-bar" aria-hidden /><strong>No harness reports</strong><span>Usage appears after a measured run.</span></div>
+          )}
+        </section>
+      ) : null}
 
-      <section className="coven-pulse__unavailable" aria-label="Metrics not reported by Coven">
-        <div className="coven-pulse__unavailable-row">
-          <span>Throughput</span>
-          <strong>Unavailable</strong>
-        </div>
-        <div className="coven-pulse__unavailable-row">
-          <span>API equivalent</span>
-          <strong>Unreported</strong>
-        </div>
-        <p>Live throughput and price-catalog estimates need additional harness telemetry.</p>
-      </section>
+      {tab === "system" ? (
+        <section className="coven-pulse__system" aria-label="System health">
+          <div><span className={`coven-pulse__signal coven-pulse__signal--${daemonOnline ? "online" : "offline"}`} /><strong>Daemon</strong><span>{connectionLabel(snapshot?.daemon ?? null)}</span></div>
+          <div><span className={`coven-pulse__signal coven-pulse__signal--${executors.length && availableExecutors === executors.length ? "online" : "offline"}`} /><strong>Executors</strong><span>{executors.length ? `${availableExecutors}/${executors.length}` : "Not configured"}</span></div>
+          <div><span className={`coven-pulse__signal coven-pulse__signal--${snapshot?.sessionsDegraded ? "offline" : "online"}`} /><strong>Sessions</strong><span>{snapshot?.sessionsDegraded ? "Local view" : "Live view"}</span></div>
+          <p>{checkedLabel(snapshot?.daemon?.checkedAt)}</p>
+        </section>
+      ) : null}
 
       <footer className="coven-pulse__footer">
         <button type="button" className="focus-ring" onClick={() => void emitPulseIntent("pulse:open-cave")}>
