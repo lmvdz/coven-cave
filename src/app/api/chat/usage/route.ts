@@ -60,29 +60,29 @@ function inPeriod(value: unknown, startsAt: string, endsAt: string): boolean {
 }
 
 async function usageTurnsForPlan(args: {
-  familiarId: string;
+  familiarId?: string;
   sessionId?: string | null;
-  model: string;
+  model?: string;
   startsAt: string;
   endsAt: string;
 }): Promise<TurnUsageLike[]> {
   const turns: TurnUsageLike[] = [];
   const rows = await listConversations();
   for (const row of rows) {
-    if (row.familiarId !== args.familiarId) continue;
+    if (args.familiarId && row.familiarId !== args.familiarId) continue;
     const conversation = await loadConversation(row.sessionId);
-    if (!conversation || conversation.familiarId !== args.familiarId) continue;
+    if (!conversation || (args.familiarId && conversation.familiarId !== args.familiarId)) continue;
     for (const turn of conversation.turns) {
       if (turn.role !== "assistant") continue;
       if (!inPeriod(turn.createdAt, args.startsAt, args.endsAt)) continue;
-      if (!turnBelongsToModel(turn, conversation, args.model)) continue;
+      if (args.model && !turnBelongsToModel(turn, conversation, args.model)) continue;
       turns.push({ usage: turn.usage, costUsd: turn.costUsd });
     }
   }
 
   if (args.sessionId && turns.length === 0) {
     const conversation = await loadConversation(args.sessionId);
-    if (conversation?.familiarId === args.familiarId) {
+    if (conversation && (!args.familiarId || conversation.familiarId === args.familiarId)) {
       for (const turn of conversation.turns) {
         if (turn.role !== "assistant") continue;
         if (!inPeriod(turn.createdAt, args.startsAt, args.endsAt)) continue;
@@ -95,18 +95,21 @@ async function usageTurnsForPlan(args: {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const allConversations = url.searchParams.get("scope") === "all";
   const familiarId = cleanText(url.searchParams.get("familiarId"));
   const sessionId = cleanText(url.searchParams.get("sessionId"));
-  if (!familiarId) return jsonError("familiarId is required", 400);
+  if (!allConversations && !familiarId) return jsonError("familiarId is required", 400);
 
   const config = await loadConfig();
-  const binding = bindingFor(config, familiarId);
-  const model = cleanModelId(url.searchParams.get("model")) ?? cleanModelId(binding.model) ?? "unknown";
+  const binding = familiarId ? bindingFor(config, familiarId) : null;
+  const model = allConversations
+    ? "all-models"
+    : cleanModelId(url.searchParams.get("model")) ?? cleanModelId(binding?.model) ?? "unknown";
   const period = monthlyUsagePeriod();
   const turns = await usageTurnsForPlan({
-    familiarId,
+    familiarId: allConversations ? undefined : familiarId ?? undefined,
     sessionId,
-    model,
+    model: allConversations ? undefined : model,
     startsAt: period.startsAt,
     endsAt: period.endsAt,
   });
@@ -129,5 +132,17 @@ export async function GET(req: Request) {
     costLimitUsd,
   });
 
-  return NextResponse.json({ ok: true, snapshot });
+  const tokenObservedTurns = turns.filter((turn) => turn.usage).length;
+  const costObservedTurns = turns.filter((turn) => typeof turn.costUsd === "number").length;
+  return NextResponse.json({
+    ok: true,
+    snapshot,
+    coverage: {
+      scope: allConversations ? "all-local-conversations" : "familiar-model",
+      observedTurns: turns.filter((turn) => turn.usage || typeof turn.costUsd === "number").length,
+      tokenObservedTurns,
+      costObservedTurns,
+      complete: false,
+    },
+  });
 }

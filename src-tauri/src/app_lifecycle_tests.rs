@@ -81,6 +81,75 @@ fn quick_chat_url_requires_a_loopback_sidecar_origin() {
     .is_none());
 }
 
+#[test]
+fn pulse_url_requires_loopback_and_preserves_child_auth_query() {
+    let sidecar =
+        Url::parse("http://127.0.0.1:43123/?covenCaveToken=tok&other=1").expect("sidecar URL");
+    let pulse = pulse_url_from_main(sidecar).expect("trusted Pulse URL");
+    assert_eq!(pulse.path(), "/quick-chat");
+    assert_eq!(pulse.query(), Some("covenCaveToken=tok&other=1&pulse=1"));
+    assert!(pulse_url_from_main(Url::parse("https://example.test/").unwrap()).is_none());
+    assert!(pulse_url_from_main(Url::parse("tauri://localhost/").unwrap()).is_none());
+}
+
+#[test]
+fn pulse_geometry_anchors_below_or_above_and_clamps_to_monitor() {
+    assert_eq!(
+        pulse_position((900.0, 0.0, 20.0, 24.0), (0.0, 0.0, 1000.0, 800.0), true),
+        (660.0, 32.0)
+    );
+    assert_eq!(
+        pulse_position((900.0, 776.0, 20.0, 24.0), (0.0, 0.0, 1000.0, 800.0), false,),
+        (660.0, 348.0)
+    );
+    assert_eq!(
+        pulse_position(
+            (-1275.0, 0.0, 20.0, 24.0),
+            (-1280.0, 0.0, 1280.0, 900.0),
+            true,
+        ),
+        (-1280.0, 32.0)
+    );
+}
+
+#[test]
+fn pulse_focus_dismissal_ignores_stale_show_timers() {
+    let state = PulseWindowState::default();
+    let first = state.begin_show();
+    assert!(!state.should_hide_on_focus_loss());
+    state.dismiss();
+    let second = state.begin_show();
+    state.arm(first);
+    assert!(!state.should_hide_on_focus_loss());
+    state.arm(second);
+    assert!(state.should_hide_on_focus_loss());
+    state.dismiss();
+    assert!(!state.should_hide_on_focus_loss());
+}
+
+#[test]
+fn pulse_capability_is_event_only_and_loopback_scoped() {
+    let capability: serde_json::Value =
+        serde_json::from_str(include_str!("../capabilities/loopback-pulse.json"))
+            .expect("valid Pulse capability");
+    assert_eq!(capability["webviews"], serde_json::json!(["pulse"]));
+    assert_eq!(
+        capability["permissions"],
+        serde_json::json!(["core:event:allow-emit"])
+    );
+    let urls = capability["remote"]["urls"]
+        .as_array()
+        .expect("Pulse remote URL allowlist");
+    assert!(!urls.is_empty());
+    assert!(urls.iter().all(|url| {
+        url.as_str().is_some_and(|url| {
+            url.starts_with("http://127.0.0.1:")
+                || url.starts_with("http://localhost:")
+                || url.starts_with(r"http://[\:\:1]:")
+        })
+    }));
+}
+
 // The main window's auth bridge strips covenCaveToken from the visible URL
 // after load (the token moves into per-window sessionStorage), so a child
 // window scraped from the live URL would open /quick-chat without the

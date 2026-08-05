@@ -6,6 +6,55 @@ pub(super) const QUICK_CHAT_WINDOW_LABEL: &str = "quick-chat";
 pub(super) const QUICK_CHAT_WIDTH: f64 = 390.0;
 #[cfg(desktop)]
 pub(super) const QUICK_CHAT_HEIGHT: f64 = 520.0;
+#[cfg(desktop)]
+pub(super) const PULSE_WINDOW_LABEL: &str = "pulse";
+#[cfg(desktop)]
+pub(super) const PULSE_WIDTH: f64 = 340.0;
+#[cfg(desktop)]
+pub(super) const PULSE_HEIGHT: f64 = 420.0;
+#[cfg(desktop)]
+const PULSE_GAP: f64 = 8.0;
+
+#[cfg(desktop)]
+#[derive(Default)]
+pub(super) struct PulseWindowState {
+    generation: std::sync::atomic::AtomicU64,
+    armed_generation: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(desktop)]
+impl PulseWindowState {
+    pub(super) fn begin_show(&self) -> u64 {
+        self.armed_generation
+            .store(0, std::sync::atomic::Ordering::Release);
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            + 1
+    }
+
+    pub(super) fn arm(&self, generation: u64) {
+        if self.generation.load(std::sync::atomic::Ordering::Acquire) == generation {
+            self.armed_generation
+                .store(generation, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    pub(super) fn should_hide_on_focus_loss(&self) -> bool {
+        let generation = self.generation.load(std::sync::atomic::Ordering::Acquire);
+        generation != 0
+            && self
+                .armed_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                == generation
+    }
+
+    pub(super) fn dismiss(&self) {
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.armed_generation
+            .store(0, std::sync::atomic::Ordering::Release);
+    }
+}
 // The optional "centered notch" presentation of quick chat: a small
 // always-on-top pill hugging the top of the screen that expands in place
 // into the quick chat surface. Geometry lives here (not in the page) so the
@@ -167,6 +216,166 @@ pub(super) fn quick_chat_url_from_main(mut url: Url) -> Option<Url> {
     }
     url.set_path("/quick-chat");
     Some(url)
+}
+
+#[cfg(desktop)]
+pub(super) fn pulse_url_from_main(mut url: Url) -> Option<Url> {
+    let trusted_loopback = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1"))
+        && url.port().is_some();
+    if !trusted_loopback {
+        return None;
+    }
+    url.set_path("/quick-chat");
+    url.query_pairs_mut().append_pair("pulse", "1");
+    Some(url)
+}
+
+#[cfg(desktop)]
+pub(super) fn pulse_position(
+    anchor: (f64, f64, f64, f64),
+    monitor: (f64, f64, f64, f64),
+    open_below: bool,
+) -> (f64, f64) {
+    let (anchor_x, anchor_y, anchor_w, anchor_h) = anchor;
+    let (monitor_x, monitor_y, monitor_w, monitor_h) = monitor;
+    let max_x = monitor_x + monitor_w - PULSE_WIDTH;
+    let max_y = monitor_y + monitor_h - PULSE_HEIGHT;
+    let x = (anchor_x + (anchor_w - PULSE_WIDTH) / 2.0).clamp(monitor_x, max_x);
+    let desired_y = if open_below {
+        anchor_y + anchor_h + PULSE_GAP
+    } else {
+        anchor_y - PULSE_HEIGHT - PULSE_GAP
+    };
+    (x, desired_y.clamp(monitor_y, max_y))
+}
+
+#[cfg(desktop)]
+fn pulse_window_position(
+    app: &tauri::AppHandle,
+    tray_anchor: Option<(tauri::Rect, tauri::PhysicalPosition<f64>)>,
+) -> (f64, f64) {
+    let cursor = app.cursor_position().ok();
+    let monitor = tray_anchor
+        .as_ref()
+        .and_then(|(_, point)| app.monitor_from_point(point.x, point.y).ok().flatten())
+        .or_else(|| {
+            cursor.and_then(|point| app.monitor_from_point(point.x, point.y).ok().flatten())
+        })
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return (24.0, 40.0);
+    };
+    let scale = monitor.scale_factor();
+    let monitor_position = monitor.position().to_logical::<f64>(scale);
+    let monitor_size = monitor.size().to_logical::<f64>(scale);
+    let anchor = if let Some((rect, _)) = tray_anchor {
+        let position = rect.position.to_logical::<f64>(scale);
+        let size = rect.size.to_logical::<f64>(scale);
+        (position.x, position.y, size.width, size.height)
+    } else if let Some(cursor) = cursor {
+        let cursor = cursor.to_logical::<f64>(scale);
+        (cursor.x, cursor.y, 1.0, 1.0)
+    } else {
+        (
+            monitor_position.x + monitor_size.width - 24.0,
+            monitor_position.y,
+            20.0,
+            24.0,
+        )
+    };
+    let open_below = cfg!(target_os = "macos")
+        || anchor.1 + anchor.3 / 2.0 < monitor_position.y + monitor_size.height / 2.0;
+    pulse_position(
+        anchor,
+        (
+            monitor_position.x,
+            monitor_position.y,
+            monitor_size.width,
+            monitor_size.height,
+        ),
+        open_below,
+    )
+}
+
+#[cfg(desktop)]
+pub(super) fn show_pulse_from_main(
+    app: &tauri::AppHandle,
+    tray_anchor: Option<(tauri::Rect, tauri::PhysicalPosition<f64>)>,
+) {
+    let Some(url) = main_url_for_child_windows(app).and_then(pulse_url_from_main) else {
+        focus_main_window(app);
+        return;
+    };
+    let (x, y) = pulse_window_position(app, tray_anchor);
+    let dismissal_generation = app
+        .try_state::<PulseWindowState>()
+        .map(|state| state.begin_show())
+        .unwrap_or(0);
+    if let Some(window) = app.get_webview_window(PULSE_WINDOW_LABEL) {
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+        let _ = window.show();
+        let _ = window.set_focus();
+        arm_pulse_dismissal(app.clone(), dismissal_generation);
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    let url = {
+        let mut glass_url = url;
+        glass_url.query_pairs_mut().append_pair("glass", "1");
+        glass_url
+    };
+    let builder = WebviewWindowBuilder::new(app, PULSE_WINDOW_LABEL, WebviewUrl::External(url))
+        .title("Coven Pulse")
+        .inner_size(PULSE_WIDTH, PULSE_HEIGHT)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .position(x, y)
+        .shadow(true)
+        .disable_drag_drop_handler();
+    #[cfg(target_os = "macos")]
+    let builder = builder.transparent(true);
+
+    match builder.build() {
+        Ok(window) => {
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                if let Err(error) =
+                    apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, Some(14.0))
+                {
+                    log::warn!("[cave] Pulse vibrancy unavailable: {error}");
+                }
+            }
+            let _ = window.show();
+            let _ = window.set_focus();
+            arm_pulse_dismissal(app.clone(), dismissal_generation);
+        }
+        Err(error) => log::warn!("[cave] failed to open Pulse window: {error}"),
+    }
+}
+
+#[cfg(desktop)]
+fn arm_pulse_dismissal(app: tauri::AppHandle, generation: u64) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(200));
+        if let Some(state) = app.try_state::<PulseWindowState>() {
+            state.arm(generation);
+        }
+    });
+}
+
+#[cfg(desktop)]
+pub(super) fn hide_pulse_window(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<PulseWindowState>() {
+        state.dismiss();
+    }
+    if let Some(window) = app.get_webview_window(PULSE_WINDOW_LABEL) {
+        let _ = window.hide();
+    }
 }
 
 #[cfg(desktop)]

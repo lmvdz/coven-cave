@@ -435,6 +435,7 @@ pub fn run() {
                 MenuItem::with_id(app, "new_reminder", "New Reminder…", true, None::<&str>)?;
             let quick_chat =
                 MenuItem::with_id(app, "quick_chat", "Quick Chat…", true, None::<&str>)?;
+            let pulse = MenuItem::with_id(app, "pulse", "Open Pulse", true, None::<&str>)?;
             let notch_mode = MenuItem::with_id(
                 app,
                 "notch_mode",
@@ -460,6 +461,7 @@ pub fn run() {
                     &open_inbox,
                     &new_reminder,
                     &quick_chat,
+                    &pulse,
                     &notch_mode,
                     &activity_separator,
                     &executor_status,
@@ -483,10 +485,11 @@ pub fn run() {
             let tray_executor_controls = executor_controls.clone();
             let tray_executor_supervisor = Arc::clone(&executor_supervisor);
             app.manage(executor_controls.clone());
+            app.manage(PulseWindowState::default());
             let tray_builder = TrayIconBuilder::with_id("cave-tray")
                 .icon(coven_tray_icon())
                 .menu(&tray_menu)
-                .show_menu_on_left_click(cfg!(target_os = "macos"))
+                .show_menu_on_left_click(false)
                 .tooltip("CovenCave")
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open_inbox" => {
@@ -498,6 +501,7 @@ pub fn run() {
                         let _ = app.emit("tray:new-reminder", ());
                     }
                     "quick_chat" => show_quick_chat_from_main(app),
+                    "pulse" => show_pulse_from_main(app, None),
                     // "Move" the menu-bar icon into the centered notch: the
                     // notch window appears top-center, the tray icon hides,
                     // and the choice persists across restarts. The notch's
@@ -558,15 +562,17 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // macOS menu-bar items open their native menu on left-click.
-                    // Other desktops retain the existing left-click shortcut
-                    // that brings the main window forward.
-                    if !cfg!(target_os = "macos") {
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
+                    if let TrayIconEvent::Click {
+                        position,
+                        rect,
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        #[cfg(target_os = "macos")]
+                        show_pulse_from_main(tray.app_handle(), Some((rect, position)));
+                        #[cfg(not(target_os = "macos"))]
                         {
                             focus_main_window(tray.app_handle());
                         }
@@ -604,6 +610,15 @@ pub fn run() {
             let app_handle = app.handle().clone();
             app.listen("quick-chat:open-session", move |_| {
                 focus_main_window(&app_handle);
+            });
+            let pulse_dismiss_handle = app.handle().clone();
+            app.listen("pulse:dismiss", move |_| {
+                hide_pulse_window(&pulse_dismiss_handle);
+            });
+            let pulse_open_handle = app.handle().clone();
+            app.listen("pulse:open-cave", move |_| {
+                hide_pulse_window(&pulse_open_handle);
+                focus_main_window(&pulse_open_handle);
             });
 
             // Notch state machine — the notch webview only emits intents
@@ -663,6 +678,25 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == PULSE_WINDOW_LABEL {
+                match event {
+                    tauri::WindowEvent::Focused(false) => {
+                        let armed = window
+                            .app_handle()
+                            .try_state::<PulseWindowState>()
+                            .is_some_and(|state| state.should_hide_on_focus_loss());
+                        if armed {
+                            hide_pulse_window(window.app_handle());
+                        }
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        if let Some(state) = window.app_handle().try_state::<PulseWindowState>() {
+                            state.dismiss();
+                        }
+                    }
+                    _ => {}
+                }
+            }
             // Closing the main window is a visibility action. Keep the app,
             // sidecar, executor, and active harness sessions resident; only
             // the explicit tray Quit action owns application shutdown.

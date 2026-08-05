@@ -41,4 +41,16 @@ assert.match(
   "The usage route should distinguish configured limits from unconfigured local estimates",
 );
 
+assert.match(
+  route,
+  /searchParams\.get\("scope"\) === "all"/,
+  "Pulse should be able to request an all-local-conversations usage projection",
+);
+
+assert.match(
+  route,
+  /complete:\s*false/,
+  "Aggregate local usage must explicitly disclose that harness coverage is incomplete",
+);
+
 console.log("chat-usage-plan-ui.test.ts: ok");
