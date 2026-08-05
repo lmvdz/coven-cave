@@ -435,7 +435,7 @@ pub fn run() {
                 MenuItem::with_id(app, "new_reminder", "New Reminder…", true, None::<&str>)?;
             let quick_chat =
                 MenuItem::with_id(app, "quick_chat", "Quick Chat…", true, None::<&str>)?;
-            let pulse = MenuItem::with_id(app, "pulse", "Open Pulse", true, None::<&str>)?;
+            let pulse = MenuItem::with_id(app, "pulse", "Open Cave Control", true, None::<&str>)?;
             let notch_mode = MenuItem::with_id(
                 app,
                 "notch_mode",

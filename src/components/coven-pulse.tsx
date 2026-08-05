@@ -252,7 +252,7 @@ export function CovenPulse() {
   return (
     <main className="coven-pulse" aria-labelledby="coven-pulse-title">
       <header className="coven-pulse__header">
-        <h1 id="coven-pulse-title">Pulse</h1>
+        <h1 id="coven-pulse-title">Cave Control</h1>
         <div className="coven-pulse__header-actions">
           <button
             type="button"
@@ -269,7 +269,7 @@ export function CovenPulse() {
             onClick={() => void refresh()}
             disabled={refreshing}
             aria-busy={refreshing}
-            aria-label="Refresh Coven Pulse"
+            aria-label="Refresh Cave Control"
             title="Refresh"
           >
             <Icon name="ph:arrow-clockwise-bold" aria-hidden />
@@ -278,7 +278,7 @@ export function CovenPulse() {
             type="button"
             className="coven-pulse__refresh focus-ring"
             onClick={() => void emitPulseIntent("pulse:dismiss")}
-            aria-label="Close Coven Pulse"
+            aria-label="Close Cave Control"
             title="Close"
           >
             <Icon name="ph:x-bold" aria-hidden />
@@ -295,7 +295,7 @@ export function CovenPulse() {
         </div>
       </header>
 
-      <nav className="coven-pulse__tabs" aria-label="Pulse views">
+      <nav className="coven-pulse__tabs" aria-label="Cave Control views">
         {(["overview", "usage", "system"] as const).map((view) => (
           <button
             key={view}
@@ -311,7 +311,7 @@ export function CovenPulse() {
 
       {error ? (
         <p className="coven-pulse__notice" role="alert">
-          Live status is unavailable. Pulse will retry automatically.
+          Live status is unavailable. Cave Control will retry automatically.
         </p>
       ) : null}
 
@@ -329,11 +329,13 @@ export function CovenPulse() {
             <article><Icon name="ph:hard-drives" aria-hidden /><strong>{loading ? "—" : `${availableExecutors}/${executors.length}`}</strong><span>Executors</span></article>
             <article><Icon name="ph:lightning-bold" aria-hidden /><strong>—</strong><span>tok/s</span></article>
           </div>
-          <div className="coven-pulse__usage-glance">
-            <span>Month</span>
-            <strong>{loading ? "—" : hasUsageReports ? tokenLabel : "No reports"}</strong>
-            <span>{hasUsageReports ? recordedCostLabel : ""}</span>
-          </div>
+          {hasUsageReports ? (
+            <div className="coven-pulse__usage-glance">
+              <span>Month</span>
+              <strong>{tokenLabel}</strong>
+              <span>{recordedCostLabel}</span>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -373,7 +375,7 @@ export function CovenPulse() {
       ) : null}
 
       <p className="sr-only" role="status" aria-live="polite">
-        {refreshing ? "Refreshing Coven Pulse." : "Coven Pulse is up to date."}
+        {refreshing ? "Refreshing Cave Control." : "Cave Control is up to date."}
       </p>
     </main>
   );

@@ -327,7 +327,7 @@ pub(super) fn show_pulse_from_main(
         glass_url
     };
     let builder = WebviewWindowBuilder::new(app, PULSE_WINDOW_LABEL, WebviewUrl::External(url))
-        .title("Coven Pulse")
+        .title("Cave Control")
         .inner_size(PULSE_WIDTH, PULSE_HEIGHT)
         .resizable(false)
         .decorations(false)
