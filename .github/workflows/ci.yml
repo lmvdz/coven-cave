@@ -297,17 +297,17 @@ jobs:
             throw 'Raw main close fallback filter did not run exactly one test.'
           }
 
-      - name: Test Windows close hard deadline
+      - name: Test Windows close-to-tray policy
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $testOutput = @(& cargo test --color never --manifest-path src-tauri/Cargo.toml --locked --lib app_lifecycle_tests::close_hard_deadline_terminates_the_exact_stalled_process -- --exact --nocapture 2>&1)
+          $testOutput = @(& cargo test --color never --manifest-path src-tauri/Cargo.toml --locked --lib app_lifecycle_tests::only_main_window_closes_to_tray -- --exact --nocapture 2>&1)
           $testExitCode = $LASTEXITCODE
           $testOutput | ForEach-Object { Write-Host $_ }
           if ($testExitCode -ne 0) { exit $testExitCode }
           $testSummary = $testOutput -join "`n"
           if ($testSummary -notmatch '(?m)^test result: ok\. 1 passed; 0 failed;') {
-            throw 'Close hard-deadline filter did not run exactly one test.'
+            throw 'Close-to-tray policy filter did not run exactly one test.'
           }
 
       - name: Test Windows idempotent sidecar cleanup
