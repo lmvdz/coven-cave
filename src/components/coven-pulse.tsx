@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "@/styles/coven-pulse.css";
 import { Icon } from "@/lib/icon";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { sessionStatusTone } from "@/lib/session-status";
 import { formatCost, formatTokens } from "@/lib/usage-format";
 
@@ -70,7 +71,7 @@ function checkedLabel(value: string | undefined): string {
   return `Checked ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-async function emitPulseIntent(event: "pulse:dismiss" | "pulse:open-cave" | ExecutorIntent): Promise<void> {
+async function emitPulseIntent(event: "pulse:dismiss" | "pulse:open-cave" | "pulse:quit-cave" | ExecutorIntent): Promise<void> {
   try {
     const { emit } = await import("@tauri-apps/api/event");
     await emit(event);
@@ -80,6 +81,7 @@ async function emitPulseIntent(event: "pulse:dismiss" | "pulse:open-cave" | Exec
 }
 
 export function CovenPulse() {
+  const confirm = useConfirm();
   const [snapshot, setSnapshot] = useState<PulseSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,6 +89,7 @@ export function CovenPulse() {
   const [tab, setTab] = useState<PulseTab>("overview");
   const [localExecutor, setLocalExecutor] = useState<LocalExecutorPulse | null>(null);
   const [action, setAction] = useState<string | null>(null);
+  const [confirmingQuit, setConfirmingQuit] = useState(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const startedAt = performance.now();
@@ -170,11 +173,27 @@ export function CovenPulse() {
 
   useEffect(() => {
     const dismiss = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void emitPulseIntent("pulse:dismiss");
+      if (event.key === "Escape" && !confirmingQuit) void emitPulseIntent("pulse:dismiss");
     };
     window.addEventListener("keydown", dismiss);
     return () => window.removeEventListener("keydown", dismiss);
-  }, []);
+  }, [confirmingQuit]);
+
+  const confirmQuit = useCallback(async () => {
+    setConfirmingQuit(true);
+    try {
+      const accepted = await confirm({
+        title: "Quit Cave and stop local services?",
+        body: "The executor will stop accepting work and drain its current task before Cave exits. Cave-owned services will stop, and active Cave sessions may be interrupted or become unreachable until Cave restarts.",
+        confirmLabel: "Quit everything",
+        cancelLabel: "Keep running",
+        danger: true,
+      });
+      if (accepted) await emitPulseIntent("pulse:quit-cave");
+    } finally {
+      setConfirmingQuit(false);
+    }
+  }, [confirm]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -237,7 +256,7 @@ export function CovenPulse() {
         <div className="coven-pulse__header-actions">
           <button
             type="button"
-            className="coven-pulse__icon-action focus-ring"
+            className="coven-pulse__refresh focus-ring"
             onClick={() => void emitPulseIntent("pulse:open-cave")}
             aria-label="Open Cave"
             title="Open Cave"
@@ -246,7 +265,7 @@ export function CovenPulse() {
           </button>
           <button
             type="button"
-            className="coven-pulse__icon-action coven-pulse__refresh focus-ring"
+            className="coven-pulse__refresh focus-ring"
             onClick={() => void refresh()}
             disabled={refreshing}
             aria-busy={refreshing}
@@ -257,12 +276,21 @@ export function CovenPulse() {
           </button>
           <button
             type="button"
-            className="coven-pulse__icon-action focus-ring"
+            className="coven-pulse__refresh focus-ring"
             onClick={() => void emitPulseIntent("pulse:dismiss")}
             aria-label="Close Coven Pulse"
             title="Close"
           >
             <Icon name="ph:x-bold" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="coven-pulse__refresh focus-ring"
+            onClick={() => void confirmQuit()}
+            aria-label="Quit Cave"
+            title="Quit Cave"
+          >
+            <Icon name="ph:door-open" aria-hidden />
           </button>
         </div>
       </header>

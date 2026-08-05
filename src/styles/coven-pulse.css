@@ -19,24 +19,7 @@
 .coven-pulse__header-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-}
-
-.coven-pulse__icon-action {
-  display: inline-grid;
-  place-items: center;
-  width: var(--space-8);
-  height: var(--space-8);
-  padding: 0;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-pill);
-  color: var(--text-secondary);
-  background: var(--bg-raised);
-  cursor: pointer;
-}
-
-.coven-pulse__icon-action:hover:not(:disabled) {
-  background: var(--bg-hover);
+  gap: var(--space-2);
 }
 
 .coven-pulse__eyebrow,
@@ -301,6 +284,16 @@
 }
 
 .coven-pulse__refresh {
+  display: inline-grid;
+  place-items: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  padding: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  background: var(--bg-raised);
+  cursor: pointer;
   transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 

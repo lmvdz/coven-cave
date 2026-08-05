@@ -621,6 +621,10 @@ pub fn run() {
                 hide_pulse_window(&pulse_open_handle);
                 focus_main_window(&pulse_open_handle);
             });
+            let pulse_quit_handle = app.handle().clone();
+            app.listen("pulse:quit-cave", move |_| {
+                request_cooperative_app_exit(&pulse_quit_handle);
+            });
             let pulse_executor_start_handle = app.handle().clone();
             let pulse_executor_start_supervisor = Arc::clone(&executor_supervisor);
             let pulse_executor_start_controls = executor_controls.clone();
