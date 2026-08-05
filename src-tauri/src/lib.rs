@@ -31,12 +31,12 @@ pub use tauri_setup::run;
 #[cfg(all(desktop, target_os = "windows"))]
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, HWND, LPARAM, LRESULT, WAIT_OBJECT_0, WPARAM},
-    System::Threading::{
-        CreateEventW, GetCurrentProcess, SetEvent, TerminateProcess, WaitForSingleObject, INFINITE,
-    },
+    System::Threading::{CreateEventW, SetEvent, WaitForSingleObject, INFINITE},
     UI::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
-        WindowsAndMessaging::{SC_CLOSE, WM_CLOSE, WM_NCDESTROY, WM_SYSCOMMAND},
+        WindowsAndMessaging::{
+            ShowWindow, SC_CLOSE, SW_HIDE, WM_CLOSE, WM_NCDESTROY, WM_SYSCOMMAND,
+        },
     },
 };
 

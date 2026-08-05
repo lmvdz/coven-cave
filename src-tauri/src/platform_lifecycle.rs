@@ -1,4 +1,21 @@
+#[cfg(all(desktop, target_os = "windows"))]
 use super::*;
+
+#[cfg(desktop)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WindowClosePolicy {
+    HideToTray,
+    Close,
+}
+
+#[cfg(desktop)]
+pub(super) fn window_close_policy(label: &str) -> WindowClosePolicy {
+    if label == "main" {
+        WindowClosePolicy::HideToTray
+    } else {
+        WindowClosePolicy::Close
+    }
+}
 
 #[cfg(all(desktop, target_os = "linux"))]
 pub(super) fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
@@ -101,20 +118,14 @@ pub(super) fn check_app_translocation() {
     }
 }
 
-// This hook sits below Tao/Tauri's event dispatch. WRY waits for WebView2
-// environment/controller creation inside a nested Windows message pump. A
-// WM_CLOSE received there is otherwise buffered by Tao until the active event
-// callback returns; if WebView2 never completes, Tauri's CloseRequested handler
-// can never run. The hook only signals a process-lifetime kernel event. Two
-// waiters are pre-spawned during setup: one performs bounded owned-process
-// cleanup and requests a normal Tauri exit; the other terminates this process
-// after the deadline if the event loop remains wedged. Kill-on-close Job
-// Objects then reap every owned process tree. Quick Chat and every non-Windows
-// window keep their existing lifecycle.
+// This hook sits below Tao/Tauri's event dispatch. WRY can wait for WebView2
+// inside a nested Windows message pump, preventing Tauri's CloseRequested
+// handler from running. Consume a native main-window close here and hide the
+// parent HWND directly so closing the UI can never terminate active work. A
+// process-lifetime event lets a waiter restore the tray icon as a recovery
+// affordance even when the normal event loop is temporarily wedged.
 #[cfg(all(desktop, target_os = "windows"))]
 pub(super) const WINDOWS_MAIN_CLOSE_SUBCLASS_ID: usize = 0x4341_5645;
-#[cfg(all(desktop, target_os = "windows"))]
-pub(super) const WINDOWS_MAIN_CLOSE_EXIT_DEADLINE: Duration = Duration::from_millis(1200);
 
 #[cfg(all(desktop, target_os = "windows"))]
 pub(super) fn signal_windows_main_close(event: HANDLE) -> bool {
@@ -127,24 +138,6 @@ pub(super) fn is_windows_main_close_message(message: u32, wparam: WPARAM) -> boo
 }
 
 #[cfg(all(desktop, target_os = "windows"))]
-pub(super) fn terminate_current_process_now() -> ! {
-    unsafe {
-        TerminateProcess(GetCurrentProcess(), 0);
-    }
-    std::process::abort();
-}
-
-#[cfg(all(desktop, target_os = "windows"))]
-pub(super) fn run_windows_main_close_hard_deadline(event: HANDLE) -> ! {
-    let wait = unsafe { WaitForSingleObject(event, INFINITE) };
-    if wait != WAIT_OBJECT_0 {
-        std::process::abort();
-    }
-    thread::sleep(WINDOWS_MAIN_CLOSE_EXIT_DEADLINE);
-    terminate_current_process_now();
-}
-
-#[cfg(all(desktop, target_os = "windows"))]
 unsafe extern "system" fn windows_main_close_subclass(
     hwnd: HWND,
     message: u32,
@@ -154,12 +147,10 @@ unsafe extern "system" fn windows_main_close_subclass(
     reference_data: usize,
 ) -> LRESULT {
     if is_windows_main_close_message(message, wparam) {
-        if !signal_windows_main_close(reference_data as HANDLE) {
-            terminate_current_process_now();
-        }
-        // Consume the native close here so neither a JavaScript listener nor a
-        // nested WRY message pump can defer it. The pre-spawned cleanup waiter
-        // owns graceful app.exit; the hard waiter owns the deadline.
+        // Hide the parent HWND, not its nested WebViews, so their state and all
+        // work owned by the resident application remain intact.
+        unsafe { ShowWindow(hwnd, SW_HIDE) };
+        let _ = signal_windows_main_close(reference_data as HANDLE);
         return 0;
     }
 
@@ -192,34 +183,22 @@ pub(super) fn install_windows_main_close_fallback(app: &tauri::App) -> Result<()
         return Err("could not create authoritative Windows close event".to_string());
     }
 
-    let cleanup_event_bits = close_event as usize;
-    let cleanup_app = app.handle().clone();
-    let cleanup_waiter = thread::Builder::new()
-        .name("cave-close-cleanup".to_string())
+    let tray_event_bits = close_event as usize;
+    let tray_app = app.handle().clone();
+    let tray_waiter = thread::Builder::new()
+        .name("cave-close-to-tray".to_string())
         .spawn(move || {
-            let event = cleanup_event_bits as HANDLE;
+            let event = tray_event_bits as HANDLE;
             if unsafe { WaitForSingleObject(event, INFINITE) } == WAIT_OBJECT_0 {
-                shutdown_owned_processes(&cleanup_app);
-                cleanup_app.exit(0);
+                let main_thread_app = tray_app.clone();
+                let _ = tray_app.run_on_main_thread(move || {
+                    set_tray_visible(&main_thread_app, true);
+                });
             }
         });
-    if cleanup_waiter.is_err() {
+    if tray_waiter.is_err() {
         unsafe { CloseHandle(close_event) };
-        return Err("could not start authoritative Windows close cleanup".to_string());
-    }
-
-    let hard_event_bits = close_event as usize;
-    let hard_waiter = thread::Builder::new()
-        .name("cave-close-hard-deadline".to_string())
-        .spawn(move || {
-            let event = hard_event_bits as HANDLE;
-            run_windows_main_close_hard_deadline(event);
-        });
-    if hard_waiter.is_err() {
-        // A cleanup waiter is already blocked on this process-lifetime event.
-        // Wake it before failing setup; it will reap owned jobs and request exit.
-        let _ = signal_windows_main_close(close_event);
-        return Err("could not start authoritative Windows close hard deadline".to_string());
+        return Err("could not start Windows close-to-tray waiter".to_string());
     }
 
     let installed = unsafe {
@@ -231,8 +210,9 @@ pub(super) fn install_windows_main_close_fallback(app: &tauri::App) -> Result<()
         )
     };
     if installed == 0 {
+        // Wake the process-lifetime waiter before failing setup.
         let _ = signal_windows_main_close(close_event);
-        return Err("could not install authoritative Windows close fallback".to_string());
+        return Err("could not install Windows close-to-tray fallback".to_string());
     }
     Ok(())
 }

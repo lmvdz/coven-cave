@@ -296,109 +296,11 @@ fn raw_main_close_fallback_recognizes_only_native_close_messages() {
     unsafe { CloseHandle(event) };
 }
 
-#[cfg(target_os = "windows")]
-const WINDOWS_CLOSE_WATCHDOG_HELPER_EVENT: &str = "COVEN_CAVE_WINDOWS_CLOSE_WATCHDOG_HELPER_EVENT";
-
-#[cfg(target_os = "windows")]
 #[test]
-fn windows_close_watchdog_helper_process() {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::System::Threading::{OpenEventW, SYNCHRONIZATION_SYNCHRONIZE};
-
-    let Some(event_name) = std::env::var_os(WINDOWS_CLOSE_WATCHDOG_HELPER_EVENT) else {
-        return;
-    };
-    let event_name = std::ffi::OsStr::new(&event_name)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let event = unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, 0, event_name.as_ptr()) };
-    assert!(!event.is_null(), "open parent close event");
-    println!("COVEN_CAVE_CLOSE_WATCHDOG_READY");
-    use std::io::Write as _;
-    std::io::stdout().flush().expect("flush helper readiness");
-    run_windows_main_close_hard_deadline(event);
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn close_hard_deadline_terminates_the_exact_stalled_process() {
-    use std::io::{BufRead, BufReader};
-    use std::os::windows::{ffi::OsStrExt, process::CommandExt};
-    use std::process::{Command, Stdio};
-    use std::sync::mpsc;
-
-    let event_name = format!(
-        "Local\\CovenCave-close-watchdog-test-{}-{}",
-        std::process::id(),
-        sidecar_auth_token()
-    );
-    let wide_event_name = std::ffi::OsStr::new(&event_name)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide_event_name.as_ptr()) };
-    assert!(!event.is_null(), "create named close event");
-
-    let mut child = Command::new(std::env::current_exe().expect("current test executable"))
-        .args([
-            "--exact",
-            "app_lifecycle_tests::windows_close_watchdog_helper_process",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env(WINDOWS_CLOSE_WATCHDOG_HELPER_EVENT, &event_name)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000)
-        .spawn()
-        .expect("spawn stalled close-watchdog helper");
-    let exact_pid = child.id();
-    let stdout = child.stdout.take().expect("helper stdout");
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let reader = thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if line.contains("COVEN_CAVE_CLOSE_WATCHDOG_READY") {
-                let _ = ready_tx.send(());
-                break;
-            }
-        }
-    });
-
-    if ready_rx.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
-        unsafe { CloseHandle(event) };
-        panic!("watchdog helper {exact_pid} did not become ready");
-    }
-
-    let started = Instant::now();
-    assert!(signal_windows_main_close(event));
-    let status = loop {
-        if let Some(status) = child.try_wait().expect("inspect watchdog helper") {
-            break status;
-        }
-        if started.elapsed() >= Duration::from_secs(5) {
-            let _ = child.kill();
-            let _ = child.wait();
-            unsafe { CloseHandle(event) };
-            panic!("watchdog did not terminate exact helper pid {exact_pid}");
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    reader.join().expect("join helper output reader");
-    unsafe { CloseHandle(event) };
-
-    assert_eq!(status.code(), Some(0));
-    assert!(
-        started.elapsed() >= WINDOWS_MAIN_CLOSE_EXIT_DEADLINE,
-        "hard exit fired before its cleanup grace period"
-    );
-    assert!(
-        started.elapsed() < Duration::from_secs(5),
-        "hard exit exceeded its bounded deadline"
-    );
+fn only_main_window_closes_to_tray() {
+    assert_eq!(window_close_policy("main"), WindowClosePolicy::HideToTray);
+    assert_eq!(window_close_policy("quick-chat"), WindowClosePolicy::Close);
+    assert_eq!(window_close_policy("notch"), WindowClosePolicy::Close);
 }
 
 #[test]
