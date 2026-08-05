@@ -331,7 +331,7 @@ export function CovenPulse() {
             <div className="coven-pulse__stat-strip">
               <button
                 type="button"
-                className="coven-pulse__stat-tile focus-ring"
+                className="coven-pulse__stat-tile coven-pulse__stat-tile--sessions focus-ring"
                 aria-expanded={overviewInsight === "sessions"}
                 aria-controls="coven-pulse-insight"
                 onClick={() => setOverviewInsight((current) => current === "sessions" ? null : "sessions")}
@@ -340,7 +340,7 @@ export function CovenPulse() {
               </button>
               <button
                 type="button"
-                className="coven-pulse__stat-tile focus-ring"
+                className="coven-pulse__stat-tile coven-pulse__stat-tile--executors focus-ring"
                 aria-expanded={overviewInsight === "executors"}
                 aria-controls="coven-pulse-insight"
                 onClick={() => setOverviewInsight((current) => current === "executors" ? null : "executors")}
@@ -349,7 +349,7 @@ export function CovenPulse() {
               </button>
               <button
                 type="button"
-                className="coven-pulse__stat-tile focus-ring"
+                className="coven-pulse__stat-tile coven-pulse__stat-tile--throughput focus-ring"
                 aria-expanded={overviewInsight === "throughput"}
                 aria-controls="coven-pulse-insight"
                 onClick={() => setOverviewInsight((current) => current === "throughput" ? null : "throughput")}
@@ -358,7 +358,7 @@ export function CovenPulse() {
               </button>
             </div>
             {overviewInsight ? (
-              <div className="coven-pulse__insight" id="coven-pulse-insight" role="region" aria-label={`${overviewInsight} details`}>
+              <div className={`coven-pulse__insight coven-pulse__insight--${overviewInsight}`} id="coven-pulse-insight" role="region" aria-label={`${overviewInsight} details`}>
                 {overviewInsight === "sessions" ? (
                   <>
                     <div><span>Running</span><strong>{runningSessions}</strong></div>

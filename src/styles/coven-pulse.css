@@ -118,6 +118,8 @@
 }
 
 .coven-pulse__stat-tile {
+  --insight-color: var(--accent-presence);
+
   position: relative;
   display: grid;
   justify-items: center;
@@ -128,6 +130,22 @@
   color: var(--text-primary);
   background: transparent;
   cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.coven-pulse__stat-tile--sessions,
+.coven-pulse__insight--sessions {
+  --insight-color: var(--color-info);
+}
+
+.coven-pulse__stat-tile--executors,
+.coven-pulse__insight--executors {
+  --insight-color: var(--color-success);
+}
+
+.coven-pulse__stat-tile--throughput,
+.coven-pulse__insight--throughput {
+  --insight-color: var(--color-warning);
 }
 
 .coven-pulse__stat-tile:first-child {
@@ -142,8 +160,18 @@
   border-left: 1px solid var(--border-hairline);
 }
 
+.coven-pulse__stat-tile:hover,
 .coven-pulse__stat-tile[aria-expanded="true"] {
-  background: var(--bg-hover);
+  color: var(--insight-color);
+  background: color-mix(in oklch, var(--insight-color) 14%, var(--bg-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--insight-color) 38%, transparent);
+}
+
+.coven-pulse__stat-tile:hover span,
+.coven-pulse__stat-tile[aria-expanded="true"] span,
+.coven-pulse__stat-tile:hover svg,
+.coven-pulse__stat-tile[aria-expanded="true"] svg {
+  color: var(--insight-color);
 }
 
 .coven-pulse__stat-tile[aria-expanded="true"]::after {
@@ -153,9 +181,9 @@
   bottom: calc(var(--space-2) * -1);
   left: var(--space-3);
   height: var(--space-2);
-  border-right: 1px solid var(--border-hairline);
-  border-left: 1px solid var(--border-hairline);
-  background: var(--bg-hover);
+  border-right: 1px solid color-mix(in oklch, var(--insight-color) 38%, transparent);
+  border-left: 1px solid color-mix(in oklch, var(--insight-color) 38%, transparent);
+  background: color-mix(in oklch, var(--insight-color) 14%, var(--bg-raised));
   content: "";
 }
 
@@ -175,14 +203,16 @@
 }
 
 .coven-pulse__insight {
+  --insight-color: var(--accent-presence);
+
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
   padding: var(--space-3);
-  border: 1px solid var(--border-hairline);
+  border: 1px solid color-mix(in oklch, var(--insight-color) 38%, var(--border-hairline));
   border-radius: var(--radius-card);
-  background: var(--bg-hover);
+  background: color-mix(in oklch, var(--insight-color) 14%, var(--bg-raised));
 }
 
 .coven-pulse__insight > div {
