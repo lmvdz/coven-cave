@@ -43,6 +43,46 @@ impl ExecutorDisplayState {
     }
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExecutorPulseSnapshot {
+    state: String,
+    owner: String,
+    running: bool,
+    controllable: bool,
+}
+
+fn executor_pulse_snapshot(
+    status: &ExecutorDisplayState,
+    owns_live_child: bool,
+) -> ExecutorPulseSnapshot {
+    let (state, owner, running) = match status {
+        ExecutorDisplayState::Unavailable => ("unavailable", "unknown", false),
+        ExecutorDisplayState::Starting => ("starting", "desktop", true),
+        ExecutorDisplayState::Stopping => ("stopping", "desktop", true),
+        ExecutorDisplayState::Draining => ("draining", "desktop", true),
+        ExecutorDisplayState::Running(runtime) => (runtime.as_str(), "desktop", true),
+        ExecutorDisplayState::External { owner, runtime } => {
+            (runtime.as_str(), owner.as_str(), runtime != "stopped")
+        }
+        ExecutorDisplayState::Paused => ("paused", "desktop", true),
+        ExecutorDisplayState::Stopped => ("stopped", "desktop", false),
+        ExecutorDisplayState::Error => ("unknown", "unknown", false),
+    };
+    let controllable = !matches!(status, ExecutorDisplayState::External { .. })
+        && !matches!(
+            status,
+            ExecutorDisplayState::Unavailable | ExecutorDisplayState::Error
+        )
+        && (owns_live_child || matches!(status, ExecutorDisplayState::Stopped));
+    ExecutorPulseSnapshot {
+        state: state.to_string(),
+        owner: owner.to_string(),
+        running,
+        controllable,
+    }
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawExecutorStatus {
@@ -204,6 +244,10 @@ pub(super) fn refresh_executor_tray_once(
         return;
     }
     let owns = supervisor.owns_live_child();
+    let _ = app.emit(
+        "pulse:executor-status",
+        executor_pulse_snapshot(&status, owns),
+    );
     let controls = controls.clone();
     let supervisor = Arc::clone(supervisor);
     if let Err(error) = app.run_on_main_thread(move || {
@@ -650,5 +694,25 @@ mod tests {
             .expect("owned fixture");
         owned.child.kill().expect("stop test fixture");
         owned.child.wait().expect("reap test fixture");
+    }
+
+    #[test]
+    fn pulse_status_exposes_only_redacted_lifecycle_fields() {
+        let desktop =
+            executor_pulse_snapshot(&ExecutorDisplayState::Running("executing".into()), true);
+        assert_eq!(desktop.state, "executing");
+        assert_eq!(desktop.owner, "desktop");
+        assert!(desktop.running);
+        assert!(desktop.controllable);
+
+        let external = executor_pulse_snapshot(
+            &ExecutorDisplayState::External {
+                owner: "headless".into(),
+                runtime: "idle".into(),
+            },
+            false,
+        );
+        assert_eq!(external.owner, "headless");
+        assert!(!external.controllable);
     }
 }

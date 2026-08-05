@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "loopback-pulse",
+  "description": "lets the trusted loopback Pulse webview emit bounded lifecycle intents and receive redacted executor status while the Rust shell owns process and window lifecycle",
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
+  "webviews": [
+    "pulse"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*",
+      "http://[\\:\\:1]:*/*"
+    ]
+  },
+  "permissions": [
+    "core:event:allow-emit",
+    "core:event:allow-listen"
+  ]
+}

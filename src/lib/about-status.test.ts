@@ -45,6 +45,21 @@ assert.equal(
   classifyAboutDaemonStatus({
     responseOk: true,
     checkedAt,
+    payload: {
+      running: false,
+      availability: "incompatible",
+      reason: "The running daemon uses an incompatible API.",
+      target: { mode: "local" },
+    },
+  }).kind,
+  "incompatible",
+  "a reachable daemon rejected by the compatibility gate is not rendered as stopped",
+);
+
+assert.equal(
+  classifyAboutDaemonStatus({
+    responseOk: true,
+    checkedAt,
     payload: { running: false, reason: "http 0", target: { mode: "local" } },
   }).kind,
   "stopped",

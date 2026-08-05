@@ -5,6 +5,7 @@ import { exactSemver } from "./exact-semver.ts";
 export type AboutDaemonState =
   | { kind: "checking" }
   | { kind: "running"; version: string | null; checkedAt: string }
+  | { kind: "incompatible"; reason: string | null; checkedAt: string }
   | { kind: "stopped"; reason: string | null; checkedAt: string }
   | { kind: "unreachable"; reason: string | null; checkedAt: string }
   | { kind: "failed-to-check"; reason: string; checkedAt: string };
@@ -12,6 +13,7 @@ export type AboutDaemonState =
 type DaemonStatusBody = {
   running: boolean;
   covenVersion?: unknown;
+  availability?: unknown;
   reason?: unknown;
   target?: { mode?: unknown };
 };
@@ -51,6 +53,9 @@ export function classifyAboutDaemonStatus(input: {
   const reason = typeof payload.reason === "string" && payload.reason.trim()
     ? payload.reason.trim()
     : null;
+  if (payload.availability === "incompatible") {
+    return { kind: "incompatible", reason, checkedAt };
+  }
   const targetMode = payload.target && typeof payload.target === "object"
     ? payload.target.mode
     : undefined;

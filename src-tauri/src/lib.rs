@@ -25,6 +25,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::PageLoadEvent,
     Emitter, Listener, Manager, Url, WebviewUrl, WebviewWindowBuilder,
 };
 pub use tauri_setup::run;
