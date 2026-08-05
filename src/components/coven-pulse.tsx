@@ -234,16 +234,31 @@ export function CovenPulse() {
     <main className="coven-pulse" aria-labelledby="coven-pulse-title">
       <header className="coven-pulse__header">
         <h1 id="coven-pulse-title">Pulse</h1>
-        <button
-          type="button"
-          className="coven-pulse__refresh focus-ring"
-          onClick={() => void refresh()}
-          disabled={refreshing}
-          aria-busy={refreshing}
-          aria-label="Refresh Coven Pulse"
-        >
-          <Icon name="ph:arrow-clockwise-bold" aria-hidden />
-        </button>
+        <div className="coven-pulse__header-actions">
+          <button type="button" className="coven-pulse__open focus-ring" onClick={() => void emitPulseIntent("pulse:open-cave")}>
+            Open Cave
+          </button>
+          <button
+            type="button"
+            className="coven-pulse__refresh focus-ring"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            aria-busy={refreshing}
+            aria-label="Refresh Coven Pulse"
+            title="Refresh"
+          >
+            <Icon name="ph:arrow-clockwise-bold" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="coven-pulse__close focus-ring"
+            onClick={() => void emitPulseIntent("pulse:dismiss")}
+            aria-label="Close Coven Pulse"
+            title="Close"
+          >
+            <Icon name="ph:x-bold" aria-hidden />
+          </button>
+        </div>
       </header>
 
       <nav className="coven-pulse__tabs" aria-label="Pulse views">
@@ -322,15 +337,6 @@ export function CovenPulse() {
           <p>{checkedLabel(snapshot?.daemon?.checkedAt)}</p>
         </section>
       ) : null}
-
-      <footer className="coven-pulse__footer">
-        <button type="button" className="focus-ring" onClick={() => void emitPulseIntent("pulse:open-cave")}>
-          Open Cave
-        </button>
-        <button type="button" className="focus-ring" onClick={() => void emitPulseIntent("pulse:dismiss")}>
-          Close
-        </button>
-      </footer>
 
       <p className="sr-only" role="status" aria-live="polite">
         {refreshing ? "Refreshing Coven Pulse." : "Coven Pulse is up to date."}
