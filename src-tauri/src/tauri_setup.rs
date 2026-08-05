@@ -236,6 +236,8 @@ pub fn run() {
     #[cfg(desktop)]
     let reachability_runtime = Arc::new(DesktopReachabilityRuntime::default());
     #[cfg(desktop)]
+    let executor_supervisor = Arc::new(ExecutorSupervisor::default());
+    #[cfg(desktop)]
     let builder = builder
         .invoke_handler(tauri::generate_handler![
             pty::pty_start,
@@ -280,6 +282,7 @@ pub fn run() {
             cancel_sidecar_startup,
         ])
         .manage(SidecarState(Arc::clone(&sidecar_process)))
+        .manage(Arc::clone(&executor_supervisor))
         .manage(Arc::clone(&reachability_runtime))
         .manage(browser::BrowserLifecycleState::default());
     #[cfg(all(desktop, target_os = "windows"))]
@@ -294,6 +297,9 @@ pub fn run() {
             let _ = app
                 .resources_table()
                 .add(SidecarCleanupGuard(Arc::clone(&sidecar_process)));
+            let _ = app
+                .resources_table()
+                .add(ExecutorCleanupGuard(Arc::clone(&executor_supervisor)));
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -436,9 +442,17 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let executor_status =
+                MenuItem::with_id(app, "executor_status", "Executor: checking", false, None::<&str>)?;
+            let executor_start =
+                MenuItem::with_id(app, "executor_start", "Start executor", false, None::<&str>)?;
+            let executor_stop =
+                MenuItem::with_id(app, "executor_stop", "Stop executor", false, None::<&str>)?;
+            let executor_separator = PredefinedMenuItem::separator(app)?;
             let show_app =
-                MenuItem::with_id(app, "show_app", "Show CovenCave", true, None::<&str>)?;
-            let separator = PredefinedMenuItem::separator(app)?;
+                MenuItem::with_id(app, "show_app", "Open Cave", true, None::<&str>)?;
+            let activity_separator = PredefinedMenuItem::separator(app)?;
+            let quit_separator = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit CovenCave", true, None::<&str>)?;
             let tray_menu = Menu::with_items(
                 app,
@@ -447,9 +461,13 @@ pub fn run() {
                     &new_reminder,
                     &quick_chat,
                     &notch_mode,
-                    &separator,
+                    &activity_separator,
+                    &executor_status,
+                    &executor_start,
+                    &executor_stop,
+                    &executor_separator,
                     &show_app,
-                    &separator,
+                    &quit_separator,
                     &quit,
                 ],
             )?;
@@ -457,10 +475,18 @@ pub fn run() {
             // `icon_as_template(true)` is a macOS-only concept (renders the
             // icon as a template image so the system can adapt it to dark/light
             // menu bar). On other platforms the call doesn't exist — guard it.
+            let executor_controls = ExecutorTrayControls {
+                status: executor_status.clone(),
+                start: executor_start.clone(),
+                stop: executor_stop.clone(),
+            };
+            let tray_executor_controls = executor_controls.clone();
+            let tray_executor_supervisor = Arc::clone(&executor_supervisor);
+            app.manage(executor_controls.clone());
             let tray_builder = TrayIconBuilder::with_id("cave-tray")
                 .icon(coven_tray_icon())
                 .menu(&tray_menu)
-                .show_menu_on_left_click(false)
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .tooltip("CovenCave")
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open_inbox" => {
@@ -492,24 +518,58 @@ pub fn run() {
                             set_tray_visible(app, false);
                         }
                     }
+                    "executor_start" => {
+                        let supervisor = Arc::clone(&tray_executor_supervisor);
+                        let controls = tray_executor_controls.clone();
+                        let handle = app.clone();
+                        let _ = controls.apply(&ExecutorDisplayState::Starting, false);
+                        thread::spawn(move || {
+                            if let Err(error) = supervisor.start() {
+                                log::warn!("[cave] executor start failed: {error}");
+                            }
+                            refresh_executor_tray_once(&handle, &supervisor, &controls);
+                        });
+                    }
+                    "executor_stop" => {
+                        let supervisor = Arc::clone(&tray_executor_supervisor);
+                        let controls = tray_executor_controls.clone();
+                        let handle = app.clone();
+                        let _ = controls.apply(&ExecutorDisplayState::Stopping, true);
+                        thread::spawn(move || {
+                            match supervisor.stop() {
+                                Ok(ExecutorStopOutcome::Draining) => apply_executor_tray_state(
+                                    &handle,
+                                    controls.clone(),
+                                    ExecutorDisplayState::Draining,
+                                    true,
+                                ),
+                                Ok(ExecutorStopOutcome::Stopped) => {}
+                                Err(error) => {
+                                    log::warn!("[cave] executor stop failed: {error}");
+                                }
+                            }
+                            refresh_executor_tray_once(&handle, &supervisor, &controls);
+                        });
+                    }
                     "show_app" => focus_main_window(app),
                     "quit" => {
-                        #[cfg(target_os = "windows")]
-                        shutdown_owned_processes(app);
-                        app.exit(0);
+                        request_cooperative_app_exit(app);
                     }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // Left-click brings the main window forward; right-click
-                    // is reserved for the native menu.
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        focus_main_window(tray.app_handle());
+                    // macOS menu-bar items open their native menu on left-click.
+                    // Other desktops retain the existing left-click shortcut
+                    // that brings the main window forward.
+                    if !cfg!(target_os = "macos") {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            focus_main_window(tray.app_handle());
+                        }
                     }
                 });
 
@@ -538,6 +598,8 @@ pub fn run() {
 
             #[cfg(not(target_os = "linux"))]
             let _tray = tray_builder.build(app)?;
+
+            executor_supervisor.start_tray_monitor(app.handle().clone(), executor_controls);
 
             let app_handle = app.handle().clone();
             app.listen("quick-chat:open-session", move |_| {
