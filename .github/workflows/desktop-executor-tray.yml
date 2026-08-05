@@ -75,8 +75,8 @@ jobs:
           node <<'NODE'
           const fs = require("node:fs");
           const edits = [
-            ["scripts/sidecar-runtime-closure.mjs", "fileCount: 5_915,", "fileCount: 5_916,"],
-            ["src-tauri/src/sidecar_archive_manifest.rs", "MAX_FILE_COUNT: u64 = 5_915;", "MAX_FILE_COUNT: u64 = 5_916;"],
+            ["scripts/sidecar-runtime-closure.mjs", "fileCount: 5_926,", "fileCount: 5_927,"],
+            ["src-tauri/src/sidecar_archive_manifest.rs", "MAX_FILE_COUNT: u64 = 5_926;", "MAX_FILE_COUNT: u64 = 5_927;"],
           ];
           for (const [file, before, after] of edits) {
             const source = fs.readFileSync(file, "utf8");
