@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "@/styles/coven-pulse.css";
 import { Icon } from "@/lib/icon";
-import { Button } from "@/components/ui/button";
 import { sessionStatusTone } from "@/lib/session-status";
 import { formatCost, formatTokens } from "@/lib/usage-format";
 
@@ -236,17 +235,18 @@ export function CovenPulse() {
       <header className="coven-pulse__header">
         <h1 id="coven-pulse-title">Pulse</h1>
         <div className="coven-pulse__header-actions">
-          <Button
-            variant="primary"
-            leadingIcon="ph:house-bold"
-            className="coven-pulse__open"
-            onClick={() => void emitPulseIntent("pulse:open-cave")}
-          >
-            Open Cave
-          </Button>
           <button
             type="button"
-            className="coven-pulse__refresh focus-ring"
+            className="coven-pulse__icon-action focus-ring"
+            onClick={() => void emitPulseIntent("pulse:open-cave")}
+            aria-label="Open Cave"
+            title="Open Cave"
+          >
+            <Icon name="ph:house-bold" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="coven-pulse__icon-action coven-pulse__refresh focus-ring"
             onClick={() => void refresh()}
             disabled={refreshing}
             aria-busy={refreshing}
@@ -257,7 +257,7 @@ export function CovenPulse() {
           </button>
           <button
             type="button"
-            className="coven-pulse__close focus-ring"
+            className="coven-pulse__icon-action focus-ring"
             onClick={() => void emitPulseIntent("pulse:dismiss")}
             aria-label="Close Coven Pulse"
             title="Close"
