@@ -27,7 +27,6 @@ assert.match(component, /DEVICES APPROVED BY THIS HUB/, "the trust registry shou
 assert.match(component, /This device is not a hub/, "executor-only devices should explain why their approval registry is empty");
 assert.match(component, /Trust is directional/, "an authenticated candidate should explain automatic reconnect without implying mutual trust");
 assert.match(component, /Run system check/, "approved devices should offer an explicit bounded executor test");
-assert.match(component, /action: "work-once"/, "a shared executor should poll for authenticated hub work while Fleet is open");
 assert.match(component, /EXECUTOR JOBS/, "the hub should show durable executor job results");
 assert.match(component, /System check completed/, "completed remote work should be distinguishable from queued work");
 assert.match(component, /Capabilities ·/, "local capabilities should remain visible beside availability");

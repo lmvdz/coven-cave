@@ -2,7 +2,7 @@
 
 import "@/styles/settings-fleet.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -113,7 +113,6 @@ export function FleetSection() {
   const [credential, setCredential] = useState("");
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [outbound, setOutbound] = useState<Outbound | null>(null);
-  const workerBusy = useRef(false);
 
   const refresh = useCallback(async (announceResult = false) => {
     setLoading(true);
@@ -133,28 +132,6 @@ export function FleetSection() {
   }, [announce]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-
-  useEffect(() => {
-    if (!snapshot?.local.acceptingJobs) return;
-    const work = async () => {
-      if (workerBusy.current) return;
-      workerBusy.current = true;
-      try {
-        const response = await fetch("/api/fleet", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "work-once" }),
-        });
-        const payload = await response.json() as { ok?: boolean; result?: { processed?: boolean } };
-        if (response.ok && payload.ok && payload.result?.processed) await refresh();
-      } finally {
-        workerBusy.current = false;
-      }
-    };
-    void work();
-    const timer = window.setInterval(() => void work(), 2_000);
-    return () => window.clearInterval(timer);
-  }, [refresh, snapshot?.local.acceptingJobs]);
 
   const mutate = useCallback(async (key: string, body: object, success: string) => {
     setBusy(key);

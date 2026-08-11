@@ -584,7 +584,15 @@ pub fn run() {
             )?;
             let show_app =
                 MenuItem::with_id(app, "show_app", "Show CovenCave", true, None::<&str>)?;
-            let separator = PredefinedMenuItem::separator(app)?;
+            let fleet_executor = MenuItem::with_id(
+                app,
+                "fleet_executor",
+                "Fleet executor: background",
+                false,
+                None::<&str>,
+            )?;
+            let separator_before_show = PredefinedMenuItem::separator(app)?;
+            let separator_before_quit = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit CovenCave", true, None::<&str>)?;
             let tray_menu = Menu::with_items(
                 app,
@@ -593,9 +601,10 @@ pub fn run() {
                     &new_reminder,
                     &quick_chat,
                     &notch_mode,
-                    &separator,
+                    &separator_before_show,
                     &show_app,
-                    &separator,
+                    &fleet_executor,
+                    &separator_before_quit,
                     &quit,
                 ],
             )?;
@@ -685,6 +694,8 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             let _tray = tray_builder.build(app)?;
 
+            start_fleet_executor_worker(app.handle().clone());
+
             let app_handle = app.handle().clone();
             app.listen("quick-chat:open-session", move |_| {
                 focus_main_window(&app_handle);
@@ -752,22 +763,18 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Tauri automatically prevents a native close when any JS
-            // `tauri://close-requested` listener is registered. If WebView2's
-            // JS thread is wedged (the same failure that makes the UI ignore
-            // clicks), that listener can never finish the close and Windows'
-            // title-bar X becomes permanently inert. The main Windows window
-            // has no supported close-to-tray contract, so make its native close
-            // request authoritative and independent of WebView responsiveness.
-            // Application cleanup drops SidecarCleanupGuard and reaps the
-            // sidecar process tree.
-            #[cfg(target_os = "windows")]
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. })
-                && window.label() == "main"
-            {
-                shutdown_owned_processes(window.app_handle());
-                window.app_handle().exit(0);
-                return;
+            // Closing the main window is a visibility action. Keep the app,
+            // sidecar, executor, and active harness sessions resident; only
+            // the explicit tray Quit action owns application shutdown.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window_close_policy(window.label()) == WindowClosePolicy::HideToTray {
+                    api.prevent_close();
+                    set_tray_visible(window.app_handle(), true);
+                    if let Err(error) = window.hide() {
+                        log::warn!("[cave] could not hide main window to tray: {error}");
+                    }
+                    return;
+                }
             }
 
             if let tauri::WindowEvent::Destroyed = event {

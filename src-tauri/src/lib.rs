@@ -31,12 +31,12 @@ pub use tauri_setup::run;
 #[cfg(all(desktop, target_os = "windows"))]
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, HWND, LPARAM, LRESULT, WAIT_OBJECT_0, WPARAM},
-    System::Threading::{
-        CreateEventW, GetCurrentProcess, SetEvent, TerminateProcess, WaitForSingleObject, INFINITE,
-    },
+    System::Threading::{CreateEventW, SetEvent, WaitForSingleObject, INFINITE},
     UI::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
-        WindowsAndMessaging::{SC_CLOSE, WM_CLOSE, WM_NCDESTROY, WM_SYSCOMMAND},
+        WindowsAndMessaging::{
+            ShowWindow, SC_CLOSE, SW_HIDE, WM_CLOSE, WM_NCDESTROY, WM_SYSCOMMAND,
+        },
     },
 };
 
@@ -49,6 +49,8 @@ pub mod browser;
 mod desktop_reachability;
 #[cfg(desktop)]
 mod discord_presence;
+#[cfg(desktop)]
+mod fleet_executor_worker;
 #[cfg(all(desktop, target_os = "macos"))]
 mod microphone;
 #[cfg(desktop)]
@@ -89,6 +91,8 @@ mod windows_command;
 
 #[cfg(desktop)]
 use desktop_reachability::*;
+#[cfg(desktop)]
+use fleet_executor_worker::*;
 #[cfg(desktop)]
 use platform_lifecycle::*;
 #[cfg(desktop)]
