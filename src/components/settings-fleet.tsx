@@ -66,6 +66,18 @@ function shortId(value: string): string {
   return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
 }
 
+function candidateStateLabel(candidate: Candidate): string {
+  if (candidate.authenticated) {
+    return candidate.roles.includes("hub") || candidate.roles.includes("both")
+      ? "Connected to hub"
+      : "Authenticated";
+  }
+  if (!candidate.reachable) return candidate.online ? "No service" : "Offline";
+  if (candidate.roles.includes("executor") || candidate.roles.includes("both")) return "Executor reachable";
+  if (candidate.roles.includes("hub")) return "Hub reachable";
+  return "Coven reachable";
+}
+
 async function postFleet(body: object): Promise<unknown> {
   const response = await fetch("/api/fleet", {
     method: "POST",
@@ -329,28 +341,37 @@ export function FleetSection() {
               >
                 <span className="settings-fleet-device-icon" aria-hidden><Icon name="ph:desktop" width={16} /></span>
                 <span className="settings-fleet-candidate-copy"><strong>{candidate.name}</strong><span>{candidate.os || "Unknown OS"} · {candidate.reachable ? candidate.roles.join(" + ") || "Coven" : candidate.error || "Coven not detected"}</span></span>
-                <StateDot tone={candidate.authenticated ? "success" : candidate.reachable ? "warning" : "neutral"} label={candidate.authenticated ? "Connected" : candidate.reachable ? "Coven ready" : candidate.online ? "No service" : "Offline"} />
+                <StateDot tone={candidate.authenticated ? "success" : candidate.reachable ? "warning" : "neutral"} label={candidateStateLabel(candidate)} />
               </button>
             ))}
           </div>
         )}
         {selected ? (
           <div className="settings-fleet-pair-card">
-            <div><strong>Pair with {selected.name}</strong><span>{selected.reachable ? "Choose explicit approval or enter a single-use credential." : "Coven must be running on this device before pairing."}</span></div>
-            <Button variant="secondary" size="sm" leadingIcon="ph:shield-warning" disabled={!selected.reachable || busy !== null} loading={busy === "request-pairing"} onClick={() => void startPairing()}>Request approval</Button>
-            <div className="settings-fleet-credential-entry">
-              <label htmlFor="fleet-enrollment-credential">Enrollment credential</label>
-              <input
-                id="fleet-enrollment-credential"
-                className="focus-ring"
-                type="password"
-                autoComplete="off"
-                value={credential}
-                onChange={(event) => setCredential(event.target.value)}
-                placeholder="Paste credential…"
-              />
-              <Button variant="secondary" size="sm" disabled={!selected.reachable || !credential.trim() || busy !== null} loading={busy === "enroll"} onClick={() => void enroll()}>Pair device</Button>
+            <div>
+              <strong>{selected.authenticated ? `Connected to ${selected.name}` : `Pair with ${selected.name}`}</strong>
+              <span>{selected.authenticated
+                ? "This device can authenticate to that hub and reconnect automatically. Trust is directional."
+                : selected.reachable
+                  ? "Choose explicit approval or enter a single-use credential."
+                  : "Coven must be running on this device before pairing."}</span>
             </div>
+            {!selected.authenticated ? <>
+              <Button variant="secondary" size="sm" leadingIcon="ph:shield-warning" disabled={!selected.reachable || busy !== null} loading={busy === "request-pairing"} onClick={() => void startPairing()}>Request approval</Button>
+              <div className="settings-fleet-credential-entry">
+                <label htmlFor="fleet-enrollment-credential">Enrollment credential</label>
+                <input
+                  id="fleet-enrollment-credential"
+                  className="focus-ring"
+                  type="password"
+                  autoComplete="off"
+                  value={credential}
+                  onChange={(event) => setCredential(event.target.value)}
+                  placeholder="Paste credential…"
+                />
+                <Button variant="secondary" size="sm" disabled={!selected.reachable || !credential.trim() || busy !== null} loading={busy === "enroll"} onClick={() => void enroll()}>Pair device</Button>
+              </div>
+            </> : null}
             {outbound ? (
               <div className="settings-fleet-pending" role="status">
                 <span>Waiting for approval on {outbound.candidateName} · expires <RelativeTime iso={outbound.expiresAt} fallback="soon" /></span>
@@ -389,9 +410,11 @@ export function FleetSection() {
       </section>
 
       <section className="settings-fleet-section" aria-labelledby="fleet-trusted-devices">
-        <div className="settings-fleet-rule"><h2 id="fleet-trusted-devices">TRUSTED DEVICES</h2><span /><span>{activeTrusted.length} active</span></div>
-        {activeTrusted.length === 0 ? (
-          <EmptyState compact icon="ph:shield-slash" headline="No trusted devices" subtitle="Pair a Coven-capable device to add it here." />
+        <div className="settings-fleet-rule"><h2 id="fleet-trusted-devices">DEVICES APPROVED BY THIS HUB</h2><span /><span>{activeTrusted.length} active</span></div>
+        {!hasHubRole ? (
+          <p className="settings-fleet-empty">This device is not a hub. Choose hub or both to approve devices here.</p>
+        ) : activeTrusted.length === 0 ? (
+          <EmptyState compact icon="ph:shield-slash" headline="No approved devices" subtitle="Approve a pairing request or share a single-use credential to trust a device." />
         ) : (
           <div className="settings-fleet-trusted">
             {activeTrusted.map((node) => (

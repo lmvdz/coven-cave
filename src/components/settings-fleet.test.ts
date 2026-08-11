@@ -21,7 +21,11 @@ assert.match(component, /role="switch"[\s\S]*aria-checked=\{snapshot\.local\.exe
 assert.match(component, /Tailscale finds devices; Coven decides trust/, "the trust boundary should be visible beside discovery");
 assert.match(component, /type="password"[\s\S]*autoComplete="off"/, "enrollment credentials should not render as plain text inputs");
 assert.match(component, /Request approval/, "explicit approval pairing should remain available");
-assert.match(component, /candidate\.authenticated \? "Connected"/, "authenticated reconnect should be visible without exposing credentials");
+assert.match(component, /"Connected to hub"/, "authenticated reconnect should describe the directional hub connection");
+assert.match(component, /"Executor reachable"/, "a reachable executor should not imply reciprocal authentication");
+assert.match(component, /DEVICES APPROVED BY THIS HUB/, "the trust registry should identify the approving side of trust");
+assert.match(component, /This device is not a hub/, "executor-only devices should explain why their approval registry is empty");
+assert.match(component, /Trust is directional/, "an authenticated candidate should explain automatic reconnect without implying mutual trust");
 assert.match(component, /Capabilities ·/, "local capabilities should remain visible beside availability");
 assert.match(component, /Single-use credential/, "short-lived credential pairing should remain available");
 assert.match(component, /useConfirm\(\)/, "approval and revocation should use the focus-trapped confirm primitive");
