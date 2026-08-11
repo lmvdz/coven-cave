@@ -36,5 +36,9 @@ assert.equal(fleetPortState('{"TCP":{"8787":{"HTTPS":true}}}'), "conflict");
 assert.equal(fleetPortState('{"TCP":{"8787":{"TCPForward":"127.0.0.1:9999"}}}'), "conflict");
 assert.throws(() => fleetPortState("not json"), /unreadable status/);
 assert.match(control, /\["serve", "status", "--json"\]/, "Fleet lifecycle should inspect existing Serve routes before mutation");
+assert.match(control, /\/fleet\/jobs\/claim/, "a shared executor should pull jobs from its authenticated hub");
+assert.match(control, /\/fleet\/local-jobs\/run/, "claimed work should execute through the local Coven daemon");
+assert.match(control, /\/fleet\/jobs\/complete/, "executor results should return to the authenticated hub");
+assert.match(control, /authenticatedRemotePayload/, "job claims and results should use directional credential proofs");
 
 console.log("fleet-control.test.ts: ok");

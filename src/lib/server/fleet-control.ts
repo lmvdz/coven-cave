@@ -56,6 +56,21 @@ export type PairingRequest = {
   createdAt: string;
 };
 
+export type FleetJob = {
+  jobId: string;
+  targetNodeId: string;
+  state: "queued" | "leased" | "completed" | "failed";
+  result: {
+    status: string;
+    stdout: string;
+    stderr: string;
+    error: string | null;
+  } | null;
+  createdAt: string;
+  leasedAt: string | null;
+  completedAt: string | null;
+};
+
 type Advertisement = {
   service: "coven-fleet";
   protocolVersions: string[];
@@ -321,9 +336,10 @@ export async function fleetSnapshot() {
     await ensureFleetTransport();
     local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
   }
-  const [trusted, incoming, inventory] = await Promise.all([
+  const [trusted, incoming, jobs, inventory] = await Promise.all([
     localCall<{ nodes: TrustedFleetNode[] }>("GET", "/api/v1/fleet/trusted-nodes"),
     localCall<{ requests: PairingRequest[] }>("GET", "/api/v1/fleet/pairing-requests"),
+    localCall<{ jobs: FleetJob[] }>("GET", "/api/v1/fleet/local-jobs"),
     loadTailscaleDevices(),
   ]);
   const discovered = inventory.ok
@@ -343,6 +359,7 @@ export async function fleetSnapshot() {
     local,
     trusted: trusted.nodes,
     incoming: incoming.requests,
+    jobs: jobs.jobs,
     tailscale: inventory.ok
       ? { available: true as const, error: null }
       : { available: false as const, error: inventory.reason },
@@ -350,20 +367,72 @@ export async function fleetSnapshot() {
   };
 }
 
-async function reconnectCandidate(candidateIdValue: string, nodeId: string): Promise<boolean> {
-  const candidate = await resolveCandidate(candidateIdValue);
+async function authenticatedRemotePayload(
+  candidate: TailscaleDevice,
+  nodeId: string,
+  extra: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const candidateAddress = candidateId(candidate);
+  if (!candidateAddress) throw new Error("A valid Tailscale peer is required.");
   const challenge = await remoteCall<{ nonce: string }>(candidate, "POST", "/fleet/challenges", { nodeId });
   const localProof = await localCall<{ nodeId: string; nonce: string; proof: string }>(
     "POST",
-    `/api/v1/fleet/local-credentials/${encodeURIComponent(candidateIdValue)}/proof`,
+    `/api/v1/fleet/local-credentials/${encodeURIComponent(candidateAddress)}/proof`,
     { nonce: challenge.nonce },
   );
-  const reconnected = await remoteCall<{ authenticated: boolean }>(candidate, "POST", "/fleet/reconnect", {
-    nodeId: localProof.nodeId,
-    nonce: localProof.nonce,
-    proof: localProof.proof,
-  });
+  return { nodeId: localProof.nodeId, nonce: localProof.nonce, proof: localProof.proof, ...extra };
+}
+
+async function reconnectCandidate(candidateIdValue: string, nodeId: string): Promise<boolean> {
+  const candidate = await resolveCandidate(candidateIdValue);
+  const authenticated = await authenticatedRemotePayload(candidate, nodeId);
+  const reconnected = await remoteCall<{ authenticated: boolean }>(candidate, "POST", "/fleet/reconnect", authenticated);
   return reconnected.authenticated === true;
+}
+
+export function queueFleetSystemInfo(targetNodeId: string) {
+  return localCall<{ jobId: string; targetNodeId: string; state: "queued" }>(
+    "POST",
+    "/api/v1/fleet/local-jobs/system-info",
+    { targetNodeId },
+  );
+}
+
+export async function runExecutorWorkOnce() {
+  const local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
+  if (!local.acceptingJobs) return { processed: false as const, reason: "executor-unavailable" };
+  const inventory = await loadTailscaleDevices();
+  if (!inventory.ok) return { processed: false as const, reason: "tailscale-unavailable" };
+  for (const candidate of inventory.devices.filter((device) => !device.isSelf && device.online && device.tailnetIp)) {
+    try {
+      const advertisement = await remoteCall<Advertisement>(candidate, "GET", "/discovery/advertisement", undefined, DISCOVERY_TIMEOUT_MS);
+      if (!advertisement.roles.some((role) => role === "hub" || role === "both")) continue;
+      const auth = await authenticatedRemotePayload(candidate, local.deviceId);
+      const claimed = await remoteCall<{ job: Record<string, unknown> | null; leaseId?: string }>(
+        candidate,
+        "POST",
+        "/fleet/jobs/claim",
+        auth,
+      );
+      if (!claimed.job || !claimed.leaseId) continue;
+      const result = await localCall<Record<string, unknown>>(
+        "POST",
+        "/api/v1/fleet/local-jobs/run",
+        claimed.job,
+      );
+      const completionAuth = await authenticatedRemotePayload(candidate, local.deviceId, {
+        jobId: claimed.job.jobId,
+        leaseId: claimed.leaseId,
+        result,
+      });
+      await remoteCall(candidate, "POST", "/fleet/jobs/complete", completionAuth);
+      return { processed: true as const, jobId: claimed.job.jobId, result };
+    } catch {
+      // A peer may be a hub without trusting this executor. Continue through
+      // the bounded Tailscale inventory without disclosing credential errors.
+    }
+  }
+  return { processed: false as const, reason: "no-work" };
 }
 
 export function configureRole(role: FleetRole) {

@@ -8,7 +8,9 @@ import {
   enrollWithCredential,
   fleetSnapshot,
   pollPairing,
+  queueFleetSystemInfo,
   requestPairing,
+  runExecutorWorkOnce,
   revokeNode,
   runLifecycle,
   type FleetRole,
@@ -26,7 +28,9 @@ type FleetAction =
   | { action: "request-pairing"; candidateId: string }
   | { action: "poll-pairing"; operationId: string }
   | { action: "decide-pairing"; requestId: string; decision: "approve" | "deny" }
-  | { action: "revoke"; nodeId: string };
+  | { action: "revoke"; nodeId: string }
+  | { action: "dispatch-system-info"; nodeId: string }
+  | { action: "work-once" };
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "The fleet operation failed. Retry.";
@@ -84,6 +88,12 @@ export async function POST(req: Request) {
         break;
       case "revoke":
         result = await revokeNode(body.nodeId);
+        break;
+      case "dispatch-system-info":
+        result = await queueFleetSystemInfo(body.nodeId);
+        break;
+      case "work-once":
+        result = await runExecutorWorkOnce();
         break;
       default:
         return NextResponse.json({ ok: false, error: "Unsupported fleet action." }, { status: 400 });

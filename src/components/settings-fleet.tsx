@@ -2,7 +2,7 @@
 
 import "@/styles/settings-fleet.css";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -45,11 +45,20 @@ type PairingRequest = {
   expiresAt: string;
   createdAt: string;
 };
+type FleetJob = {
+  jobId: string;
+  targetNodeId: string;
+  state: "queued" | "leased" | "completed" | "failed";
+  result: { stdout?: string; stderr?: string; error?: string | null } | null;
+  createdAt: string;
+  completedAt: string | null;
+};
 type Snapshot = {
   ok: true;
   local: LocalNode;
   trusted: TrustedNode[];
   incoming: PairingRequest[];
+  jobs: FleetJob[];
   tailscale: { available: boolean; error: string | null };
   candidates: Candidate[];
 };
@@ -104,6 +113,7 @@ export function FleetSection() {
   const [credential, setCredential] = useState("");
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [outbound, setOutbound] = useState<Outbound | null>(null);
+  const workerBusy = useRef(false);
 
   const refresh = useCallback(async (announceResult = false) => {
     setLoading(true);
@@ -123,6 +133,28 @@ export function FleetSection() {
   }, [announce]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!snapshot?.local.acceptingJobs) return;
+    const work = async () => {
+      if (workerBusy.current) return;
+      workerBusy.current = true;
+      try {
+        const response = await fetch("/api/fleet", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "work-once" }),
+        });
+        const payload = await response.json() as { ok?: boolean; result?: { processed?: boolean } };
+        if (response.ok && payload.ok && payload.result?.processed) await refresh();
+      } finally {
+        workerBusy.current = false;
+      }
+    };
+    void work();
+    const timer = window.setInterval(() => void work(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [refresh, snapshot?.local.acceptingJobs]);
 
   const mutate = useCallback(async (key: string, body: object, success: string) => {
     setBusy(key);
@@ -219,6 +251,14 @@ export function FleetSection() {
     });
     if (!accepted) return;
     await mutate(`revoke:${node.nodeId}`, { action: "revoke", nodeId: node.nodeId }, "Device access revoked.");
+  };
+
+  const dispatchSystemInfo = async (node: TrustedNode) => {
+    await mutate(
+      `dispatch:${node.nodeId}`,
+      { action: "dispatch-system-info", nodeId: node.nodeId },
+      "System information task queued for the executor.",
+    );
   };
 
   if (loading && !snapshot) {
@@ -421,12 +461,35 @@ export function FleetSection() {
               <div key={node.nodeId} className="settings-fleet-trusted-row">
                 <span className="settings-fleet-device-icon" aria-hidden><Icon name="ph:desktop" width={16} /></span>
                 <div><strong>{shortId(node.nodeId)}</strong><span>Last authenticated <RelativeTime iso={node.lastSeenAt} fallback="unknown" /> · trusted <RelativeTime iso={node.enrolledAt} fallback="unknown" /></span></div>
+                <Button variant="secondary" size="xs" loading={busy === `dispatch:${node.nodeId}`} disabled={busy !== null} onClick={() => void dispatchSystemInfo(node)}>Run system check</Button>
                 <Button variant="danger-ghost" size="xs" onClick={() => void revoke(node)}>Revoke</Button>
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {hasHubRole ? (
+        <section className="settings-fleet-section" aria-labelledby="fleet-executor-jobs">
+          <div className="settings-fleet-rule"><h2 id="fleet-executor-jobs">EXECUTOR JOBS</h2><span /><span>{snapshot.jobs.length} recent</span></div>
+          {snapshot.jobs.length === 0 ? (
+            <EmptyState compact icon="ph:terminal-window" headline="No executor jobs" subtitle="Run a system check on an approved device to verify remote execution." />
+          ) : (
+            <div className="settings-fleet-trusted">
+              {snapshot.jobs.map((job) => (
+                <div key={job.jobId} className="settings-fleet-trusted-row">
+                  <span className="settings-fleet-device-icon" aria-hidden><Icon name="ph:terminal-window-bold" width={16} /></span>
+                  <div>
+                    <strong>{job.state === "completed" ? "System check completed" : job.state === "failed" ? "System check failed" : "System check queued"}</strong>
+                    <span>{shortId(job.targetNodeId)} · {job.result?.stdout?.trim() || job.result?.error || "Waiting for the executor…"}</span>
+                  </div>
+                  <StateDot tone={job.state === "completed" ? "success" : job.state === "failed" ? "warning" : "neutral"} label={job.state} />
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
     </section>
   );
 }
