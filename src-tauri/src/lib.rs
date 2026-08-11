@@ -35,7 +35,8 @@ use windows_sys::Win32::{
     UI::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            ShowWindow, SC_CLOSE, SW_HIDE, WM_CLOSE, WM_NCDESTROY, WM_SYSCOMMAND,
+            SetForegroundWindow, ShowWindow, SC_CLOSE, SW_HIDE, SW_RESTORE, WM_CLOSE,
+            WM_NCDESTROY, WM_SYSCOMMAND,
         },
     },
 };

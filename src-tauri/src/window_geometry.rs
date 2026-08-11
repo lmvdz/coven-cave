@@ -105,6 +105,18 @@ pub(super) fn coven_tray_icon() -> Image<'static> {
 pub(super) fn focus_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
+        // The Windows close fallback hides the raw HWND while WebView2 is in
+        // a nested message pump. Tauri can consequently still believe the
+        // window is visible, making `show()` alone a no-op. Restore the native
+        // parent explicitly before asking Tauri to focus it.
+        #[cfg(target_os = "windows")]
+        if let Ok(hwnd) = w.hwnd() {
+            let hwnd = hwnd.0 as HWND;
+            unsafe {
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+            }
+        }
         let _ = w.set_focus();
     }
 }
