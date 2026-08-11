@@ -7,6 +7,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const WORK_BODY: &str = r#"{"action":"work-once"}"#;
+const APP_QUIT_BODY: &str = r#"{"action":"app-quit"}"#;
 
 static WORKER_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -39,7 +40,7 @@ fn worker_target(url: &Url) -> Option<WorkerTarget> {
     })
 }
 
-fn post_work_once(target: &WorkerTarget) -> Result<(), String> {
+fn post_action(target: &WorkerTarget, body: &str) -> Result<(), String> {
     let mut stream = TcpStream::connect((target.host.as_str(), target.port))
         .map_err(|error| format!("could not connect to Cave worker endpoint: {error}"))?;
     stream
@@ -58,8 +59,8 @@ fn post_work_once(target: &WorkerTarget) -> Result<(), String> {
         target.host,
         target.port,
         token_header,
-        WORK_BODY.len(),
-        WORK_BODY
+        body.len(),
+        body
     );
     stream
         .write_all(request.as_bytes())
@@ -83,6 +84,22 @@ fn post_work_once(target: &WorkerTarget) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn post_work_once(target: &WorkerTarget) -> Result<(), String> {
+    post_action(target, WORK_BODY)
+}
+
+pub(super) fn stop_owned_fleet_daemon(app: &tauri::AppHandle) {
+    let Some(target) = main_url_for_child_windows(app)
+        .as_ref()
+        .and_then(worker_target)
+    else {
+        return;
+    };
+    if let Err(error) = post_action(&target, APP_QUIT_BODY) {
+        log::warn!("[cave] could not stop the Cave-owned Coven daemon: {error}");
+    }
 }
 
 pub(super) fn start_fleet_executor_worker(app: tauri::AppHandle) {

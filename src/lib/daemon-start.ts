@@ -313,6 +313,30 @@ export type DaemonStartOperation = {
 };
 let activeDaemonStart: DaemonStartOperation | null = null;
 
+export class DaemonProcessOwnership {
+  private owned = false;
+
+  claim() {
+    this.owned = true;
+  }
+
+  async stopOwned(stop: () => Promise<void>): Promise<{ stopped: boolean }> {
+    if (!this.owned) return { stopped: false };
+    this.owned = false;
+    try {
+      await stop();
+      return { stopped: true };
+    } catch (error) {
+      // Preserve ownership after a failed stop so a retry can still clean up
+      // the daemon this Cave session launched.
+      this.owned = true;
+      throw error;
+    }
+  }
+}
+
+const daemonProcessOwnership = new DaemonProcessOwnership();
+
 function hasTestSeam(options: StartLocalDaemonOptions): boolean {
   return Boolean(
     options.probe
@@ -374,6 +398,13 @@ export function startLocalDaemonOperation(
     },
     (operationResult) => operationResult.ok,
   );
+  // Cave owns only a daemon it actually launched. An already-running daemon
+  // belongs to whatever supervisor started it, so tray quit must leave it up.
+  void result.then((operationResult) => {
+    if (operationResult.ok && !operationResult.alreadyRunning) {
+      daemonProcessOwnership.claim();
+    }
+  }, () => {});
   const operation: DaemonStartOperation = {
     diagnostics,
     result,
@@ -390,6 +421,18 @@ export function startLocalDaemon(
   options: StartLocalDaemonOptions = {},
 ): Promise<DaemonStartResult> {
   return startLocalDaemonOperation(options).result;
+}
+
+export function stopOwnedLocalDaemon(): Promise<{ stopped: boolean }> {
+  return daemonProcessOwnership.stopOwned(async () => {
+    const { command, fixedArgs } = covenLaunchCommand();
+    await execFileAsync(command, [...fixedArgs, "daemon", "stop"], {
+      encoding: "utf8",
+      env: harnessSpawnEnv(),
+      timeout: 5_000,
+      windowsHide: true,
+    });
+  });
 }
 
 async function runLocalDaemonStart(

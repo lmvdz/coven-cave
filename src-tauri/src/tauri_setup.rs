@@ -649,6 +649,7 @@ pub fn run() {
                     }
                     "show_app" => focus_main_window(app),
                     "quit" => {
+                        stop_owned_fleet_daemon(app);
                         #[cfg(target_os = "windows")]
                         shutdown_owned_processes(app);
                         app.exit(0);

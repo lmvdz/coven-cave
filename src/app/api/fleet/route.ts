@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { rejectNonLocalRequest } from "@/lib/server/api-security";
+import { stopOwnedLocalDaemon } from "@/lib/daemon-start";
 import {
   configureRole,
   configureSharing,
@@ -30,7 +31,8 @@ type FleetAction =
   | { action: "decide-pairing"; requestId: string; decision: "approve" | "deny" }
   | { action: "revoke"; nodeId: string }
   | { action: "dispatch-system-info"; nodeId: string }
-  | { action: "work-once" };
+  | { action: "work-once" }
+  | { action: "app-quit" };
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "The fleet operation failed. Retry.";
@@ -94,6 +96,9 @@ export async function POST(req: Request) {
         break;
       case "work-once":
         result = await runExecutorWorkOnce();
+        break;
+      case "app-quit":
+        result = await stopOwnedLocalDaemon();
         break;
       default:
         return NextResponse.json({ ok: false, error: "Unsupported fleet action." }, { status: 400 });

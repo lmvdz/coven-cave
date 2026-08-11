@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { sanitizeAboutDiagnosticText } from "./about-diagnostics.ts";
 import {
+  DaemonProcessOwnership,
   directDaemonLaunchCommand,
   parseDaemonLifecycleInspection,
   startLocalDaemon,
@@ -41,6 +42,23 @@ assert.match(daemonStart, /RuntimeStartupCoordinator/, "duplicate launches and r
 assert.match(daemonStart, /code: "address_in_use"/, "an address someone else holds has its own actionable outcome");
 assert.match(daemonStart, /inspectDaemonAddress/, "occupancy is proven by connecting, not inferred from a failed health probe");
 assert.match(daemonStart, /daemonStartCoordinator\.run/, "production starts enter the shared coordinator");
+
+test("daemon ownership stops only a process launched by this Cave session", async () => {
+  const ownership = new DaemonProcessOwnership();
+  let stops = 0;
+  assert.deepEqual(await ownership.stopOwned(async () => { stops += 1; }), { stopped: false });
+  ownership.claim();
+  assert.deepEqual(await ownership.stopOwned(async () => { stops += 1; }), { stopped: true });
+  assert.deepEqual(await ownership.stopOwned(async () => { stops += 1; }), { stopped: false });
+  assert.equal(stops, 1);
+});
+
+test("failed daemon shutdown preserves ownership for a retry", async () => {
+  const ownership = new DaemonProcessOwnership();
+  ownership.claim();
+  await assert.rejects(ownership.stopOwned(async () => { throw new Error("busy"); }), /busy/);
+  assert.deepEqual(await ownership.stopOwned(async () => {}), { stopped: true });
+});
 
 for (const [payload, expected] of [
   [{ status: "running", ok: true }, { status: "running" }],
