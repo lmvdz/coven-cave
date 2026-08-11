@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { callDaemonTarget, extractDaemonError, localDaemonTarget } from "../coven-daemon.ts";
+import { covenLaunchCommand, covenSpawnEnv } from "../coven-bin.ts";
+import { tailscaleBin, tailscaleSpawnEnv } from "../mobile-handoff.ts";
 import { loadTailscaleDevices, type TailscaleDevice } from "./tailscale-devices.ts";
 
 export const FLEET_PROTOCOL = "coven.fleet.v1";
@@ -7,6 +11,7 @@ const FLEET_PORT = 8787;
 const DISCOVERY_TIMEOUT_MS = 1_200;
 const OPERATION_TIMEOUT_MS = 4_000;
 const MAX_DISCOVERY_CANDIDATES = 64;
+const execFileAsync = promisify(execFile);
 
 export type FleetRole = "hub" | "executor" | "both";
 export type FleetLifecycle = "stopped" | "running" | "draining";
@@ -66,6 +71,129 @@ type OutboundPairing = {
 };
 
 const outboundPairings = new Map<string, OutboundPairing>();
+
+type TailscaleServeStatus = {
+  TCP?: Record<string, { TCPForward?: string; HTTPS?: boolean; HTTP?: boolean }>;
+};
+
+type FleetPortState = "available" | "owned" | "conflict";
+
+export function fleetPortState(rawStatus: string): FleetPortState {
+  const jsonStart = rawStatus.indexOf("{");
+  if (jsonStart < 0) throw new Error("Tailscale Serve returned an unreadable status.");
+  let status: TailscaleServeStatus;
+  try {
+    status = JSON.parse(rawStatus.slice(jsonStart)) as TailscaleServeStatus;
+  } catch {
+    throw new Error("Tailscale Serve returned an unreadable status.");
+  }
+  const route = status.TCP?.[String(FLEET_PORT)];
+  if (!route) return "available";
+  return route.TCPForward === `127.0.0.1:${FLEET_PORT}` ? "owned" : "conflict";
+}
+
+async function currentFleetPortState(): Promise<FleetPortState> {
+  try {
+    const { stdout } = await execFileAsync(tailscaleBin(), ["serve", "status", "--json"], {
+      env: tailscaleSpawnEnv(),
+      encoding: "utf8",
+      timeout: 8_000,
+      windowsHide: true,
+      maxBuffer: 512 * 1024,
+    });
+    return fleetPortState(stdout);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Tailscale Serve returned an unreadable status.") throw error;
+    throw new Error("Coven could not inspect Tailscale Serve before changing Fleet port 8787. Start Tailscale and retry.");
+  }
+}
+
+async function localFleetAdvertisementReady(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1_200);
+  try {
+    const response = await fetch(`http://127.0.0.1:${FLEET_PORT}/api/v1/discovery/advertisement`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) return false;
+    const body = await response.json().catch(() => null) as Advertisement | null;
+    return body?.service === "coven-fleet" && body.protocolVersions.includes(FLEET_PROTOCOL);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function localTailnetAddress(): Promise<string> {
+  const inventory = await loadTailscaleDevices();
+  if (!inventory.ok) throw new Error(`${inventory.reason}. Start Tailscale, then retry.`);
+  const self = inventory.devices.find((device) => device.isSelf && device.tailnetIp);
+  if (!self?.tailnetIp) throw new Error("Tailscale did not report this device's private IPv4 address.");
+  return self.tailnetIp;
+}
+
+async function publishFleetPort(): Promise<void> {
+  const state = await currentFleetPortState();
+  if (state === "owned") return;
+  if (state === "conflict") {
+    throw new Error("Tailscale Serve port 8787 is already used by another route. Remove that route or choose a different Fleet port.");
+  }
+  try {
+    await execFileAsync(
+      tailscaleBin(),
+      ["serve", "--bg", `--tcp=${FLEET_PORT}`, `tcp://127.0.0.1:${FLEET_PORT}`],
+      { env: tailscaleSpawnEnv(), timeout: 8_000, windowsHide: true, maxBuffer: 512 * 1024 },
+    );
+  } catch {
+    throw new Error("Coven started locally, but Tailscale could not publish Fleet port 8787. Check Tailscale Serve access and retry.");
+  }
+}
+
+async function withdrawFleetPort(): Promise<void> {
+  const state = await currentFleetPortState();
+  if (state === "available") return;
+  if (state === "conflict") {
+    throw new Error("Tailscale Serve port 8787 belongs to another route, so Coven left it unchanged.");
+  }
+  try {
+    await execFileAsync(
+      tailscaleBin(),
+      ["serve", `--tcp=${FLEET_PORT}`, "off"],
+      { env: tailscaleSpawnEnv(), timeout: 8_000, windowsHide: true, maxBuffer: 512 * 1024 },
+    );
+  } catch {
+    throw new Error("Coven stopped sharing, but Tailscale could not withdraw Fleet port 8787. Run `tailscale serve status` and retry.");
+  }
+}
+
+async function ensureFleetTransport(forceRestart = false): Promise<void> {
+  if (!forceRestart && await localFleetAdvertisementReady()) {
+    await publishFleetPort();
+    return;
+  }
+  const tailnetIp = await localTailnetAddress();
+  const { command, fixedArgs } = covenLaunchCommand();
+  try {
+    await execFileAsync(command, [...fixedArgs, "daemon", "restart"], {
+      env: {
+        ...covenSpawnEnv(),
+        COVEN_DAEMON_TCP: `127.0.0.1:${FLEET_PORT}`,
+        COVEN_DAEMON_ALLOW_HOST: tailnetIp,
+      },
+      timeout: 10_000,
+      windowsHide: true,
+      maxBuffer: 512 * 1024,
+    });
+  } catch {
+    throw new Error("Coven could not restart its private Fleet listener. Check the Coven daemon and retry.");
+  }
+  if (!await localFleetAdvertisementReady()) {
+    throw new Error("Coven restarted, but its private Fleet listener did not become ready on port 8787.");
+  }
+  await publishFleetPort();
+}
 
 async function localCall<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
   const response = await callDaemonTarget<T>(localDaemonTarget(), {
@@ -188,8 +316,12 @@ async function probeCandidate(device: TailscaleDevice): Promise<FleetCandidate |
 }
 
 export async function fleetSnapshot() {
-  const [local, trusted, incoming, inventory] = await Promise.all([
-    localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node"),
+  let local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
+  if (local.lifecycle !== "stopped" && !await localFleetAdvertisementReady()) {
+    await ensureFleetTransport();
+    local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
+  }
+  const [trusted, incoming, inventory] = await Promise.all([
     localCall<{ nodes: TrustedFleetNode[] }>("GET", "/api/v1/fleet/trusted-nodes"),
     localCall<{ requests: PairingRequest[] }>("GET", "/api/v1/fleet/pairing-requests"),
     loadTailscaleDevices(),
@@ -242,9 +374,12 @@ export function configureSharing(enabled: boolean) {
   return localCall<LocalFleetNode>("PUT", "/api/v1/fleet/local-node/sharing", { enabled });
 }
 
-export function runLifecycle(action: "start" | "stop" | "restart" | "drain" | "resume") {
+export async function runLifecycle(action: "start" | "stop" | "restart" | "drain" | "resume") {
+  if (action === "start" || action === "restart") await ensureFleetTransport(action === "restart");
   const body = action === "restart" ? { operationId: randomUUID() } : undefined;
-  return localCall<LocalFleetNode>("POST", `/api/v1/fleet/local-node/lifecycle/${action}`, body);
+  const node = await localCall<LocalFleetNode>("POST", `/api/v1/fleet/local-node/lifecycle/${action}`, body);
+  if (action === "stop") await withdrawFleetPort();
+  return node;
 }
 
 export function createEnrollment() {
