@@ -24,6 +24,31 @@ assert.match(
   "daemon settings should post an explicit restart request when restarting",
 );
 
+// Settings unmounts a section when you switch away from it, so a start begun on
+// the Daemon panel lost its "Starting…" label and its follow-up status read the
+// moment you visited Fleet. Coming back showed a single stale read — "Offline" —
+// and nothing polled again, so it never corrected itself.
+assert.match(
+  settingsDaemon,
+  /let inFlightDaemonAction: \{ kind: "start" \| "restart"; settled: Promise<void> \} \| null = null/,
+  "the in-flight daemon action should live at module scope so it outlives the section",
+);
+assert.match(
+  settingsDaemon,
+  /useState\(\(\) => inFlightDaemonAction\?\.kind === "start"\)/,
+  "a remount should show a start that is still in flight rather than resetting to idle",
+);
+assert.match(
+  settingsDaemon,
+  /usePausablePoll\(/,
+  "the daemon panel should keep polling status while it is open, not read once on mount",
+);
+assert.match(
+  settingsDaemon,
+  /starting \|\| restarting \? DAEMON_STATUS_POLL_ACTIVE_MS : DAEMON_STATUS_POLL_MS/,
+  "polling should tighten while a launch is in flight",
+);
+
 assert.match(
   workspace,
   /const refreshDaemonStatus = useCallback\([\s\S]*daemonConnectionSupervisorRef\.current\?\.refresh\(\{ fresh: opts\?\.fresh === true \|\| opts\?\.trusted === true \}\)/,

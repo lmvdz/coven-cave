@@ -26,6 +26,7 @@ import {
   type DaemonAutomationKey,
 } from "@/lib/daemon-automation-pref";
 import { createDaemonStatusRequestGate } from "@/lib/daemon-desktop-auto-start";
+import { usePausablePoll } from "@/lib/use-pausable-poll";
 import {
   describeDaemonAvailability,
   type DaemonAvailability,
@@ -232,6 +233,22 @@ function describeTailscaleFailure(raw: string): { headline: string; hint: string
   };
 }
 
+/**
+ * The in-flight start/restart, held at module scope so it outlives the section.
+ *
+ * Settings swaps sections by unmounting them, so leaving Daemon for Fleet threw
+ * away the `starting` flag and aborted the follow-up status refresh. Coming back
+ * re-mounted with `starting: false` and a single status read, which reported
+ * "Offline" while the daemon was still coming up — and stayed there, because
+ * nothing polled again. Re-attaching to the same promise keeps the label honest
+ * across navigation instead of resetting it.
+ */
+let inFlightDaemonAction: { kind: "start" | "restart"; settled: Promise<void> } | null = null;
+
+/** Poll fast enough to watch a launch land, slow enough to idle politely. */
+const DAEMON_STATUS_POLL_MS = 5_000;
+const DAEMON_STATUS_POLL_ACTIVE_MS = 1_500;
+
 export function DaemonSection({
   suggestedHubUrl,
   onSuggestionConsumed,
@@ -245,8 +262,10 @@ export function DaemonSection({
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [restarting, setRestarting] = useState(false);
+  // Seed from the module-level action so a remount shows the launch already in
+  // progress rather than a stale "Offline".
+  const [starting, setStarting] = useState(() => inFlightDaemonAction?.kind === "start");
+  const [restarting, setRestarting] = useState(() => inFlightDaemonAction?.kind === "restart");
   const [startError, setStartError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<MultiHostMode>("local");
@@ -312,6 +331,30 @@ export function DaemonSection({
     void refresh();
     return () => refreshCtlRef.current?.abort();
   }, [refresh]);
+
+  // Re-attach to a start/restart that began before this mount, so its
+  // completion still clears the label and re-reads status here.
+  useEffect(() => {
+    const action = inFlightDaemonAction;
+    if (!action) return;
+    let attached = true;
+    void action.settled.then(() => {
+      if (!attached) return;
+      setStarting(false);
+      setRestarting(false);
+      void refresh();
+    });
+    return () => {
+      attached = false;
+    };
+  }, [refresh]);
+
+  // A single mount-time read went stale the moment the daemon finished coming
+  // up. Keep watching while the panel is open; poll harder during a launch.
+  usePausablePoll(
+    () => void refresh(),
+    starting || restarting ? DAEMON_STATUS_POLL_ACTIVE_MS : DAEMON_STATUS_POLL_MS,
+  );
 
   useEffect(() => {
     const ctl = new AbortController();
@@ -530,49 +573,44 @@ export function DaemonSection({
     void probeHub(url, false);
   };
 
-  const startDaemon = async () => {
-    setStarting(true);
+  // The POST deliberately carries no AbortSignal: leaving the section must not
+  // cancel a launch the user already asked for.
+  const runDaemonAction = async (kind: "start" | "restart") => {
+    const setPending = kind === "start" ? setStarting : setRestarting;
+    const verb = kind === "start" ? "start" : "restart";
+    setPending(true);
     setStartError(null);
-    try {
-      const res = await fetch("/api/daemon/start", { method: "POST" });
+    const request = (async () => {
+      const res = kind === "restart"
+        ? await fetch("/api/daemon/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ restart: true }),
+        })
+        : await fetch("/api/daemon/start", { method: "POST" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json?.ok === false) {
-        throw new Error(json?.error || json?.stderr || "daemon did not start");
+        throw new Error(json?.error || json?.stderr || `daemon did not ${verb}`);
       }
-      announce("Daemon started.");
+    })();
+    const action = { kind, settled: request.then(() => {}, () => {}) };
+    inFlightDaemonAction = action;
+    try {
+      await request;
+      announce(kind === "start" ? "Daemon started." : "Daemon restarted.");
       await refresh();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "daemon did not start";
+      const message = err instanceof Error ? err.message : `daemon did not ${verb}`;
       setStartError(message);
-      announce(`Couldn't start the daemon: ${message}`, "assertive");
+      announce(`Couldn't ${verb} the daemon: ${message}`, "assertive");
     } finally {
-      setStarting(false);
+      if (inFlightDaemonAction === action) inFlightDaemonAction = null;
+      setPending(false);
     }
   };
 
-  const restartDaemon = async () => {
-    setRestarting(true);
-    setStartError(null);
-    try {
-      const res = await fetch("/api/daemon/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ restart: true }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || json?.ok === false) {
-        throw new Error(json?.error || json?.stderr || "daemon did not restart");
-      }
-      announce("Daemon restarted.");
-      await refresh();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "daemon did not restart";
-      setStartError(message);
-      announce(`Couldn't restart the daemon: ${message}`, "assertive");
-    } finally {
-      setRestarting(false);
-    }
-  };
+  const startDaemon = () => runDaemonAction("start");
+  const restartDaemon = () => runDaemonAction("restart");
 
   const setManualOffline = async (manualOffline: boolean) => {
     setSavingTravel(true);
