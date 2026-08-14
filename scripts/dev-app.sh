@@ -25,6 +25,16 @@ cd "$(dirname "$0")/.."
 # reachable. Source the helper so the Next process inherits its absolute CLI.
 source scripts/whisper-runtime-dev-env.sh
 
+# Every desktop-dev launch needs the same per-launch credential in all three
+# peers: the custom server, the Tauri process, and the webview auth bridge.
+# Packaged startup already mints this token in Rust; dev startup owns both
+# processes here, so mint it before probing/starting either one. Without this,
+# a machine with persisted mobile access enabled rejects the local window and
+# native Fleet worker even though a tokenless machine appears to work.
+if [ -z "${COVEN_CAVE_AUTH_TOKEN:-}" ]; then
+  export COVEN_CAVE_AUTH_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')"
+fi
+
 port_is_listening() {
   node -e "const net=require('net');const s=net.connect({host:'127.0.0.1',port:Number(process.argv[1])});s.setTimeout(300);s.on('connect',()=>process.exit(0));s.on('timeout',()=>process.exit(1));s.on('error',()=>process.exit(1));" "$1"
 }
@@ -157,10 +167,8 @@ trap 'cleanup; exit 143' TERM HUP
 # The bridge stores it in sessionStorage, strips it,
 # and attaches the header to same-origin `/api/` calls.
 dev_url="http://127.0.0.1:${dev_port}"
-if [ -n "${COVEN_CAVE_AUTH_TOKEN:-}" ]; then
-  sidecar_token_fragment="$(node -p 'encodeURIComponent(process.env.COVEN_CAVE_AUTH_TOKEN)')"
-  dev_url+="#covenCaveToken=${sidecar_token_fragment}"
-fi
+sidecar_token_fragment="$(node -p 'encodeURIComponent(process.env.COVEN_CAVE_AUTH_TOKEN)')"
+dev_url+="#covenCaveToken=${sidecar_token_fragment}"
 
 # The desktop shell must not be opened until the actual root document answers.
 # The first Windows compile can be slow, so a long one-shot request avoids

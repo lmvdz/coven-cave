@@ -86,8 +86,13 @@ assert.match(
 
 assert.match(
   source,
-  /if \[ -n "\$\{COVEN_CAVE_AUTH_TOKEN:-\}" \]; then[\s\S]*?encodeURIComponent\(process\.env\.COVEN_CAVE_AUTH_TOKEN\)[\s\S]*?dev_url\+="#covenCaveToken=\$\{sidecar_token_fragment\}"/,
-  "an inherited sidecar token must reach the desktop webview through the URL hash",
+  /if \[ -z "\$\{COVEN_CAVE_AUTH_TOKEN:-\}" \]; then[\s\S]*?export COVEN_CAVE_AUTH_TOKEN=.*randomBytes\(32\)/,
+  "desktop dev must mint a per-launch sidecar token when the caller did not provide one",
+);
+assert.match(
+  source,
+  /encodeURIComponent\(process\.env\.COVEN_CAVE_AUTH_TOKEN\)[\s\S]*?dev_url\+="#covenCaveToken=\$\{sidecar_token_fragment\}"/,
+  "the shared sidecar token must reach the desktop webview through the URL hash",
 );
 assert.match(
   source,
