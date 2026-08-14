@@ -25,6 +25,8 @@ assert.doesNotMatch(control, /loadProjects|executorWorkspaceInventory/, "remote 
 assert.match(control, /activeExecutorWork[\s\S]*?forwardExecutorEvents[\s\S]*?\/fleet\/jobs\/status/, "background execution keeps streaming and cancellation polls alive beyond the native worker timeout");
 assert.match(chat, /fleetNodeIdFromHostOption\(fleetHost \?\? ""\)/);
 assert.match(chat, /fleetNodeId \? "\/api\/chat\/send\/fleet" : "\/api\/chat\/send"/, "placement changes only the selected turn's transport");
+assert.match(chat, /opts\?\.parentTurnId === undefined[\s\S]*?parentTurnPolicy: "canonical-active-leaf"/, "ordinary Fleet sends authorize canonical server re-anchoring after optimistic rejection");
+assert.match(route, /body\.parentTurnPolicy === "canonical-active-leaf"[\s\S]*?conversation\.activeLeafId/, "the Fleet route repairs only ordinary missing optimistic parents from canonical persisted state");
 assert.match(chat, /remoteFleetTurnRef[\s\S]*?method: "DELETE"/, "Stop targets the selected remote turn");
 assert.match(localSend, /previousTurnRanOnFleet[\s\S]*?canonical continuation context[\s\S]*?executionPromptText/, "the following local turn replays hub-canonical context instead of resuming stale machine-local state");
 

@@ -31,6 +31,7 @@ type RemoteSendBody = {
   permissionMode?: unknown;
   modelOverride?: unknown;
   parentTurnId?: unknown;
+  parentTurnPolicy?: unknown;
   attachments?: unknown;
 };
 
@@ -154,7 +155,7 @@ export async function POST(req: Request) {
   const turnId = stringField(body.turnId);
   const sessionId = stringField(body.sessionId);
   const targetNodeId = stringField(body.targetNodeId);
-  const parentTurnId = stringField(body.parentTurnId);
+  let parentTurnId = stringField(body.parentTurnId);
   const projectRoot = typeof body.projectRoot === "string" ? body.projectRoot.trim() : "";
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!familiarId || !turnId || !sessionId || !targetNodeId || !projectRoot || !prompt) {
@@ -183,7 +184,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "The parent turn id is invalid." }, { status: 400 });
   }
   if (parentTurnId && !conversation.turns.some((turn) => turn.id === parentTurnId)) {
-    return NextResponse.json({ ok: false, error: "The parent turn was not found in this conversation." }, { status: 409 });
+    // Ordinary composer sends may race with a rejected optimistic turn that
+    // exists only in browser state. Re-anchor those sends to the server's
+    // canonical active leaf. Explicit edit/regenerate parents stay strict so
+    // a missing branch target is never silently redirected.
+    if (body.parentTurnPolicy === "canonical-active-leaf") {
+      parentTurnId = conversation.activeLeafId &&
+        conversation.turns.some((turn) => turn.id === conversation.activeLeafId)
+        ? conversation.activeLeafId
+        : null;
+    } else {
+      return NextResponse.json({ ok: false, error: "The parent turn was not found in this conversation." }, { status: 409 });
+    }
   }
   let attachments: ReturnType<typeof remoteAttachments>;
   try {

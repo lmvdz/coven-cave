@@ -5243,6 +5243,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
                 turnId: userTurn.id,
                 targetNodeId: fleetNodeId,
                 ...(userTurn.parentId ? { parentTurnId: userTurn.parentId } : {}),
+                ...(opts?.parentTurnId === undefined
+                  ? { parentTurnPolicy: "canonical-active-leaf" as const }
+                  : {}),
               }
             : {}),
           ...(outgoingAttachments.length ? { attachments: stripPreviewOnlyAttachmentFieldsKeepingImages(outgoingAttachments) } : {}),
