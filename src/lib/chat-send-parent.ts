@@ -18,16 +18,20 @@ export function durableSendParentId(
 ): string | null {
   if (!activeLeafId) return null;
   const byId = new Map(turns.map((turn) => [turn.id, turn]));
-  const leaf = byId.get(activeLeafId);
-  if (!leaf) return null;
-  if (
-    leaf.role !== "assistant" ||
-    (leaf.lifecycle !== "failed" && leaf.lifecycle !== "error")
+  let leaf = byId.get(activeLeafId);
+  const visited = new Set<string>();
+  while (
+    leaf?.role === "assistant" &&
+    (leaf.lifecycle === "failed" || leaf.lifecycle === "error") &&
+    !visited.has(leaf.id)
   ) {
-    return leaf.id;
+    visited.add(leaf.id);
+    const optimisticUser = leaf.parentId ? byId.get(leaf.parentId) : undefined;
+    const parentId = optimisticUser?.role === "user"
+      ? optimisticUser.parentId ?? null
+      : leaf.parentId ?? null;
+    if (!parentId) return null;
+    leaf = byId.get(parentId);
   }
-
-  const optimisticUser = leaf.parentId ? byId.get(leaf.parentId) : undefined;
-  if (optimisticUser?.role === "user") return optimisticUser.parentId ?? null;
-  return leaf.parentId ?? null;
+  return leaf?.id ?? null;
 }

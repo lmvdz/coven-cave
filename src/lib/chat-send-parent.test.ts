@@ -28,6 +28,18 @@ test("a durable active leaf remains the next send parent", () => {
   );
 });
 
+test("a new send skips a chain of rejected optimistic attempts", () => {
+  const turns = [
+    { id: "durable-assistant", role: "assistant" },
+    { id: "failed-user-1", parentId: "durable-assistant", role: "user" },
+    { id: "failed-assistant-1", parentId: "failed-user-1", role: "assistant", lifecycle: "failed" },
+    { id: "failed-user-2", parentId: "failed-assistant-1", role: "user" },
+    { id: "failed-assistant-2", parentId: "failed-user-2", role: "assistant", lifecycle: "failed" },
+  ];
+
+  assert.equal(durableSendParentId(turns, "failed-assistant-2"), "durable-assistant");
+});
+
 test("a rejected first follow-up returns the root branch point", () => {
   assert.equal(
     durableSendParentId(
