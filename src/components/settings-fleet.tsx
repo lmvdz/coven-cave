@@ -60,6 +60,11 @@ type Snapshot = {
   incoming: PairingRequest[];
   jobs: FleetJob[];
   tailscale: { available: boolean; error: string | null };
+  transport: {
+    state: "ready" | "conflict" | "absent";
+    port: number;
+    error: string | null;
+  };
   candidates: Candidate[];
 };
 type Enrollment = { credential: string; expiresAt: string; singleUse: true };
@@ -329,6 +334,13 @@ export function FleetSection() {
               onClick={() => void mutate("sharing", { action: "sharing", enabled: !snapshot.local.executorShared }, snapshot.local.executorShared ? "Executor sharing disabled." : "Executor sharing enabled.")}
             ><span className="settings-switch__knob" aria-hidden /></button>
           </div>
+          {snapshot.transport.state === "conflict" ? (
+            <ErrorState
+              compact
+              headline={`Port ${snapshot.transport.port} is taken`}
+              subtitle={snapshot.transport.error ?? "Another process owns the Fleet port."}
+            />
+          ) : null}
           <p className="settings-fleet-availability" role="status">
             {snapshot.local.acceptingJobs ? "Available for trusted work." : snapshot.local.nextAction === "enable-sharing" ? "Running, but executor sharing is off." : `Not accepting work while ${snapshot.local.lifecycle}.`}
           </p>

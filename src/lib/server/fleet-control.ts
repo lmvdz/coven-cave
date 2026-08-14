@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
+import { connect } from "node:net";
 import { promisify } from "node:util";
 import { callDaemonTarget, extractDaemonError, localDaemonTarget } from "../coven-daemon.ts";
 import { covenLaunchCommand, covenSpawnEnv } from "../coven-bin.ts";
@@ -141,6 +142,47 @@ async function localFleetAdvertisementReady(): Promise<boolean> {
   }
 }
 
+/**
+ * Whether anything at all is accepting connections on the Fleet port.
+ *
+ * Distinguishes "Coven's listener is not running" from "someone else owns this
+ * port", which the advertisement probe alone cannot: both look like a failed
+ * fetch. On Windows, WSL2's `wslrelay` routinely claims 127.0.0.1:8787, and a
+ * daemon restart can never win it back — so restarting in that state is a loop,
+ * not a repair.
+ */
+async function portAcceptsConnections(port: number, timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    const settle = (accepted: boolean) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(accepted);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => settle(true));
+    socket.once("timeout", () => settle(false));
+    socket.once("error", () => settle(false));
+  });
+}
+
+export type FleetTransportState =
+  /** Coven's own Fleet listener answered its advertisement. */
+  | "ready"
+  /** Something is on the port, but it is not Coven. Restarting cannot fix it. */
+  | "conflict"
+  /** Nothing is listening. Starting the Fleet transport is the repair. */
+  | "absent";
+
+export async function localFleetTransportState(): Promise<FleetTransportState> {
+  if (await localFleetAdvertisementReady()) return "ready";
+  return (await portAcceptsConnections(FLEET_PORT)) ? "conflict" : "absent";
+}
+
+export function fleetTransportConflictMessage(port = FLEET_PORT): string {
+  return `Another process is already listening on 127.0.0.1:${port}, so Coven cannot serve Fleet there. On Windows this is usually WSL's port forwarding (wslrelay). Free the port, then start Fleet again.`;
+}
+
 async function localTailnetAddress(): Promise<string> {
   const inventory = await loadTailscaleDevices();
   if (!inventory.ok) throw new Error(`${inventory.reason}. Start Tailscale, then retry.`);
@@ -184,10 +226,15 @@ async function withdrawFleetPort(): Promise<void> {
 }
 
 async function ensureFleetTransport(forceRestart = false): Promise<void> {
-  if (!forceRestart && await localFleetAdvertisementReady()) {
+  const state = await localFleetTransportState();
+  if (!forceRestart && state === "ready") {
     await publishFleetPort();
     return;
   }
+  // A foreign listener is not something a daemon restart can take back. Say so
+  // instead of bouncing the daemon — that restart is what took the local daemon
+  // down every time the Fleet screen rendered.
+  if (state === "conflict") throw new Error(fleetTransportConflictMessage());
   const tailnetIp = await localTailnetAddress();
   const { command, fixedArgs } = covenLaunchCommand();
   try {
@@ -331,11 +378,16 @@ async function probeCandidate(device: TailscaleDevice): Promise<FleetCandidate |
 }
 
 export async function fleetSnapshot() {
-  let local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
-  if (local.lifecycle !== "stopped" && !await localFleetAdvertisementReady()) {
-    await ensureFleetTransport();
-    local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
-  }
+  const local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
+  // Reading the Fleet screen must never mutate the daemon. This previously
+  // called ensureFleetTransport(), so every render shelled out to
+  // `coven daemon restart` whenever the advertisement was unreachable — which
+  // is permanent when another process owns port 8787. The daemon went down on
+  // each visit to Settings → Fleet. Report the transport instead; Start and
+  // Restart remain the explicit repair.
+  const transportState = local.lifecycle === "stopped"
+    ? "absent" as const
+    : await localFleetTransportState();
   const [trusted, incoming, jobs, inventory] = await Promise.all([
     localCall<{ nodes: TrustedFleetNode[] }>("GET", "/api/v1/fleet/trusted-nodes"),
     localCall<{ requests: PairingRequest[] }>("GET", "/api/v1/fleet/pairing-requests"),
@@ -363,6 +415,11 @@ export async function fleetSnapshot() {
     tailscale: inventory.ok
       ? { available: true as const, error: null }
       : { available: false as const, error: inventory.reason },
+    transport: {
+      state: transportState,
+      port: FLEET_PORT,
+      error: transportState === "conflict" ? fleetTransportConflictMessage() : null,
+    },
     candidates,
   };
 }

@@ -41,4 +41,38 @@ assert.match(control, /\/fleet\/local-jobs\/run/, "claimed work should execute t
 assert.match(control, /\/fleet\/jobs\/complete/, "executor results should return to the authenticated hub");
 assert.match(control, /authenticatedRemotePayload/, "job claims and results should use directional credential proofs");
 
+// Rendering Settings → Fleet issued a GET that called ensureFleetTransport(),
+// which shells out to `coven daemon restart`. When another process owns port
+// 8787 (WSL's wslrelay routinely does on Windows) the advertisement probe can
+// never succeed, so every visit to the screen bounced the local daemon and the
+// Daemon panel then reported "Offline". A read must not mutate the daemon.
+const snapshotBody = control.slice(
+  control.indexOf("export async function fleetSnapshot()"),
+  control.indexOf("async function authenticatedRemotePayload"),
+);
+assert.ok(snapshotBody.length > 0, "fleetSnapshot should still be defined");
+// Compare against code only: the comment above explains the regression by name,
+// and must not itself satisfy the guard.
+const snapshotCode = snapshotBody.replace(/^\s*\/\/.*$/gm, "");
+assert.doesNotMatch(
+  snapshotCode,
+  /ensureFleetTransport\(/,
+  "reading the fleet snapshot must never restart the daemon — Start/Restart are the explicit repair",
+);
+assert.match(
+  snapshotBody,
+  /localFleetTransportState\(\)/,
+  "the snapshot should report transport state instead of provisioning it",
+);
+assert.match(
+  control,
+  /if \(state === "conflict"\) throw new Error\(fleetTransportConflictMessage\(\)\)/,
+  "a foreign listener on the fleet port should be named, not answered with a daemon restart",
+);
+assert.match(
+  control,
+  /portAcceptsConnections/,
+  "transport state should distinguish an absent listener from a foreign one",
+);
+
 console.log("fleet-control.test.ts: ok");
