@@ -12,6 +12,8 @@
 // happens to. This is the repo-wide half.
 
 import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Only `<<<<<<<` and `>>>>>>>` trigger a failure, never a bare `=======`.
@@ -98,4 +100,11 @@ function main() {
   process.exit(1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// Compare resolved paths, not a hand-built `file://` string. On Windows
+// process.argv[1] is `C:\path\to\file`, whose naive concatenation yields
+// `file://C:\path\to\file` while import.meta.url is `file:///C:/path/to/file` —
+// never equal, so main() never ran and this gate exited 0 on every tree,
+// including ones full of markers. Same idiom as scripts/run-tests.mjs.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}
