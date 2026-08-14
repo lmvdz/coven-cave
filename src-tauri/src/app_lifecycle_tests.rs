@@ -3,6 +3,20 @@ use super::*;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
+#[test]
+fn sidecar_runtime_path_can_prepend_the_windows_npm_shim_directory() {
+    let mut path = r"C:\Windows\System32".to_string();
+    prepend_runtime_path(
+        &mut path,
+        Some(std::path::PathBuf::from(r"C:\Users\Lars\AppData\Roaming\npm")),
+        ";",
+    );
+    assert_eq!(
+        path,
+        r"C:\Users\Lars\AppData\Roaming\npm;C:\Windows\System32"
+    );
+}
+
 // The dev launcher cannot read a signal death out of `tauri dev`, which
 // returns 0 for one. It reads this marker instead, so an unwritten or empty
 // marker has to mean "startup never finished" and nothing else. cave-g8n5v.

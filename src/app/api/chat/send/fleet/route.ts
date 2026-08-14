@@ -11,6 +11,8 @@ import { loadProjects } from "@/lib/cave-projects";
 import { assertProjectAccess, ProjectAccessDeniedError } from "@/lib/project-permissions";
 import { capturePortableFleetWorkspace } from "@/lib/server/fleet-workspace";
 import { buildFamiliarContractBlock } from "@/lib/server/familiar-contract-context";
+import { resolveFleetParentTurnId } from "@/lib/server/fleet-parent-resolution";
+import { fleetExecutionFailureMessage } from "@/lib/server/fleet-result-message";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -183,20 +185,16 @@ export async function POST(req: Request) {
   if (body.parentTurnId != null && !parentTurnId) {
     return NextResponse.json({ ok: false, error: "The parent turn id is invalid." }, { status: 400 });
   }
-  if (parentTurnId && !conversation.turns.some((turn) => turn.id === parentTurnId)) {
-    // Ordinary composer sends may race with a rejected optimistic turn that
-    // exists only in browser state. Re-anchor those sends to the server's
-    // canonical active leaf. Explicit edit/regenerate parents stay strict so
-    // a missing branch target is never silently redirected.
-    if (body.parentTurnPolicy === "canonical-active-leaf") {
-      parentTurnId = conversation.activeLeafId &&
-        conversation.turns.some((turn) => turn.id === conversation.activeLeafId)
-        ? conversation.activeLeafId
-        : null;
-    } else {
-      return NextResponse.json({ ok: false, error: "The parent turn was not found in this conversation." }, { status: 409 });
-    }
+  const parentResolution = resolveFleetParentTurnId({
+    turnIds: new Set(conversation.turns.map((turn) => turn.id)),
+    activeLeafId: conversation.activeLeafId,
+    requestedParentTurnId: parentTurnId,
+    allowCanonicalFallback: body.parentTurnPolicy === "canonical-active-leaf",
+  });
+  if (!parentResolution.ok) {
+    return NextResponse.json({ ok: false, error: "The parent turn was not found in this conversation." }, { status: 409 });
   }
+  parentTurnId = parentResolution.parentTurnId;
   let attachments: ReturnType<typeof remoteAttachments>;
   try {
     attachments = remoteAttachments(normalizeChatAttachments(body.attachments));
@@ -379,8 +377,13 @@ export async function POST(req: Request) {
         const output = job.result?.stdout ?? "";
         const assistantText = extractRewrite(output);
         const isError = job.state !== "completed" || job.result?.status !== "completed" || !assistantText;
-        const visibleText = assistantText || job.result?.error || "The executor finished without returning an assistant response.";
-        push({ kind: "progress", id: "fleet-dispatch", label: `Completed on ${targetNodeId}`, status: isError ? "error" : "done" });
+        const visibleText = assistantText || fleetExecutionFailureMessage(job.result, conversation.harness);
+        push({
+          kind: "progress",
+          id: "fleet-dispatch",
+          label: `${isError ? "Failed" : "Completed"} on ${targetNodeId}`,
+          status: isError ? "error" : "done",
+        });
         if (visibleText.startsWith(streamedText)) {
           const tail = visibleText.slice(streamedText.length);
           if (tail) push({ kind: "assistant_chunk", text: tail });

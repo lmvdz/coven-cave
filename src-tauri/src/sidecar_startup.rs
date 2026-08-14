@@ -679,13 +679,19 @@ fn run_sidecar_runtime(
     };
     let mut augmented_path = default_path;
     if let Some(directory) = node.parent() {
-        augmented_path = format!("{}{}{}", directory.display(), path_sep, augmented_path);
+        prepend_runtime_path(&mut augmented_path, Some(directory.to_path_buf()), path_sep);
     }
+    #[cfg(target_os = "windows")]
+    prepend_runtime_path(
+        &mut augmented_path,
+        std::env::var_os("APPDATA").map(PathBuf::from).map(|path| path.join("npm")),
+        path_sep,
+    );
     match find_coven() {
         Some(coven) => {
             log::info!("[cave] using coven at {}", coven.display());
             if let Some(directory) = coven.parent() {
-                augmented_path = format!("{}{}{}", directory.display(), path_sep, augmented_path);
+                prepend_runtime_path(&mut augmented_path, Some(directory.to_path_buf()), path_sep);
             }
         }
         None => log::warn!("[cave] `coven` CLI not found on disk - onboarding will prompt install"),
@@ -968,6 +974,13 @@ fn run_sidecar_runtime(
             format!("could not build sidecar URL: {error}"),
         )
     })
+}
+
+pub(super) fn prepend_runtime_path(path: &mut String, directory: Option<PathBuf>, separator: &str) {
+    let Some(directory) = directory.filter(|value| !value.as_os_str().is_empty()) else {
+        return;
+    };
+    *path = format!("{}{}{}", directory.display(), separator, path);
 }
 
 #[cfg(all(desktop, target_os = "windows"))]
