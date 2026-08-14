@@ -18,6 +18,15 @@ struct WorkerTarget {
     token: Option<String>,
 }
 
+fn valid_worker_token(value: String) -> Option<String> {
+    (!value.is_empty()
+        && value.len() <= 512
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
+    .then_some(value)
+}
+
 fn worker_target(url: &Url) -> Option<WorkerTarget> {
     if url.scheme() != "http" || !matches!(url.host_str(), Some("127.0.0.1" | "localhost")) {
         return None;
@@ -26,13 +35,7 @@ fn worker_target(url: &Url) -> Option<WorkerTarget> {
     let token = url
         .query_pairs()
         .find_map(|(key, value)| (key == "covenCaveToken").then(|| value.into_owned()))
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= 512
-                && value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-        });
+        .and_then(valid_worker_token);
     Some(WorkerTarget {
         host: url.host_str()?.to_string(),
         port,
@@ -103,7 +106,11 @@ fn authenticated_worker_target(app: &tauri::AppHandle) -> Option<WorkerTarget> {
     let mut target = main_url_for_child_windows(app)
         .as_ref()
         .and_then(worker_target)?;
-    if let Some(token) = current_sidecar_auth_token() {
+    if let Some(token) = current_sidecar_auth_token().and_then(valid_worker_token).or_else(|| {
+        std::env::var("COVEN_CAVE_AUTH_TOKEN")
+            .ok()
+            .and_then(valid_worker_token)
+    }) {
         target.token = Some(token);
     }
     Some(target)
@@ -173,6 +180,17 @@ mod tests {
         // outlive the sidecar it authenticated.
         remember_sidecar_auth_token("beefbeef");
         assert_eq!(current_sidecar_auth_token().as_deref(), Some("beefbeef"));
+    }
+
+    #[test]
+    fn launcher_credentials_use_the_same_strict_header_grammar() {
+        assert_eq!(
+            valid_worker_token("dev_token-123".to_string()).as_deref(),
+            Some("dev_token-123")
+        );
+        assert!(valid_worker_token("bad\r\nheader".to_string()).is_none());
+        assert!(valid_worker_token(String::new()).is_none());
+        assert!(valid_worker_token("a".repeat(513)).is_none());
     }
 
     #[test]
