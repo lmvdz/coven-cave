@@ -323,14 +323,14 @@ export function ComposerHostChip({
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={`Host: ${label}`}
+        title={`Run on: ${label}`}
         onClick={() => {
           void load();
           setOpen((v) => !v);
         }}
       >
         <Icon name="ph:desktop" width={13} aria-hidden />
-        <span className="cave-composer-select__label">Host</span>
+        <span className="cave-composer-select__label">Run on</span>
         <span className={`cave-host-dot cave-host-dot--${status}`} aria-hidden />
         <span className="cave-composer-select__value">{label}</span>
         <Icon name="ph:caret-down-bold" width={10} aria-hidden className="cave-composer-select__chevron" />
@@ -344,7 +344,7 @@ export function ComposerHostChip({
         ariaLabel="Chat host"
       >
         <PopoverBody ariaLabel="Chat host">
-          <PopoverLabel>Run this chat on</PopoverLabel>
+          <PopoverLabel>Run this turn on</PopoverLabel>
           <ComposerHostChoices
             options={options}
             value={value}
