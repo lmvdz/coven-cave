@@ -191,8 +191,16 @@ export function useComposerHosts(value: string): {
       { id: LOCAL_HOST_ID, kind: "local", label: "This machine", online: true },
     ];
     if (base.some((option) => option.id === value)) return base;
-    const kind = value.startsWith("omnigent:") ? ("omnigent" as const) : ("ssh" as const);
-    const label = kind === "omnigent" ? value.replace(/^omnigent:/, "Omnigent · ") : value;
+    const kind = value.startsWith("omnigent:")
+      ? ("omnigent" as const)
+      : value.startsWith("fleet:")
+        ? ("fleet" as const)
+        : ("ssh" as const);
+    const label = kind === "omnigent"
+      ? value.replace(/^omnigent:/, "Omnigent · ")
+      : kind === "fleet"
+        ? value.replace(/^fleet:/, "Fleet · ")
+        : value;
     return [...base, { id: value, kind, label, online: null }];
   }, [hosts, value]);
 

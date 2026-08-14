@@ -6,6 +6,7 @@ import { callDaemonTarget, extractDaemonError, localDaemonTarget } from "../cove
 import { covenLaunchCommand, covenSpawnEnv } from "../coven-bin.ts";
 import { tailscaleBin, tailscaleSpawnEnv } from "../mobile-handoff.ts";
 import { loadTailscaleDevices, type TailscaleDevice } from "./tailscale-devices.ts";
+import { loadProjects } from "../cave-projects.ts";
 
 export const FLEET_PROTOCOL = "coven.fleet.v1";
 const FLEET_PORT = 8787;
@@ -47,6 +48,8 @@ export type TrustedFleetNode = {
   enrolledAt: string;
   lastSeenAt: string;
   revokedAt: string | null;
+  displayName?: string | null;
+  capabilities?: string[];
 };
 
 export type PairingRequest = {
@@ -60,7 +63,7 @@ export type PairingRequest = {
 export type FleetJob = {
   jobId: string;
   targetNodeId: string;
-  state: "queued" | "leased" | "completed" | "failed";
+  state: "queued" | "leased" | "completed" | "failed" | "cancelled";
   result: {
     status: string;
     stdout: string;
@@ -87,6 +90,14 @@ type OutboundPairing = {
 };
 
 const outboundPairings = new Map<string, OutboundPairing>();
+
+type ActiveExecutorWork = {
+  candidate: TailscaleDevice;
+  nodeId: string;
+  forwardedSequence: number;
+};
+
+const activeExecutorWork = new Map<string, ActiveExecutorWork>();
 
 type TailscaleServeStatus = {
   TCP?: Record<string, { TCPForward?: string; HTTPS?: boolean; HTTP?: boolean }>;
@@ -257,12 +268,17 @@ async function ensureFleetTransport(forceRestart = false): Promise<void> {
   await publishFleetPort();
 }
 
-async function localCall<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
+async function localCall<T>(
+  method: "GET" | "POST" | "PUT",
+  path: string,
+  body?: unknown,
+  timeoutMs = 4_000,
+): Promise<T> {
   const response = await callDaemonTarget<T>(localDaemonTarget(), {
     method,
     path,
     ...(body === undefined ? {} : { body }),
-    timeoutMs: 4_000,
+    timeoutMs,
     retryTransportFailure: method === "GET",
   });
   if (!response.ok || response.data === null) {
@@ -455,16 +471,95 @@ export function queueFleetSystemInfo(targetNodeId: string) {
   );
 }
 
+export async function trustedFleetNodes(): Promise<TrustedFleetNode[]> {
+  return (await localCall<{ nodes: TrustedFleetNode[] }>(
+    "GET",
+    "/api/v1/fleet/trusted-nodes",
+  )).nodes;
+}
+
+export type RemoteFleetTurn = {
+  turnId: string;
+  targetNodeId: string;
+  familiarId: string;
+  harness: string;
+  model?: string;
+  workspace: { root: string; projectName?: string; repositoryUrl?: string; checkpoint?: string };
+  prompt: string;
+  contextMessages: Array<{ role: "user" | "assistant" | "system"; text: string }>;
+  attachments?: Array<{ name: string; mimeType: string; dataBase64: string }>;
+  permissionMode: "read" | "full";
+  timeoutSeconds?: number;
+};
+
+export function queueRemoteFleetTurn(turn: RemoteFleetTurn) {
+  return localCall<{ jobId: string; turnId: string; targetNodeId: string; state: FleetJob["state"] }>(
+    "POST",
+    "/api/v1/fleet/local-jobs/remote-turn",
+    turn,
+  );
+}
+
+export async function fleetJob(jobId: string): Promise<FleetJob | null> {
+  const result = await localCall<{ jobs: FleetJob[] }>("GET", "/api/v1/fleet/local-jobs");
+  return result.jobs.find((job) => job.jobId === jobId) ?? null;
+}
+
+export type FleetJobEvent = { sequence: number; chunkBase64: string };
+
+export async function fleetJobEvents(jobId: string): Promise<FleetJobEvent[]> {
+  const result = await localCall<{ events: FleetJobEvent[] }>(
+    "GET",
+    `/api/v1/fleet/local-jobs/${encodeURIComponent(jobId)}/events`,
+  );
+  return result.events;
+}
+
+export function cancelFleetJob(jobId: string) {
+  return localCall<{ jobId: string; state: FleetJob["state"] }>(
+    "POST",
+    `/api/v1/fleet/local-jobs/${encodeURIComponent(jobId)}/cancel`,
+  );
+}
+
 export async function runExecutorWorkOnce() {
   const local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
   if (!local.acceptingJobs) return { processed: false as const, reason: "executor-unavailable" };
+  for (const [jobId, active] of activeExecutorWork) {
+    try {
+      await forwardExecutorEvents(jobId, active);
+      const statusAuth = await authenticatedRemotePayload(active.candidate, active.nodeId, { jobId });
+      const status = await remoteCall<{ state: FleetJob["state"] }>(
+        active.candidate,
+        "POST",
+        "/fleet/jobs/status",
+        statusAuth,
+      );
+      if (status.state === "cancelled") {
+        await localCall(
+          "POST",
+          `/api/v1/fleet/local-executions/${encodeURIComponent(jobId)}/cancel`,
+        ).catch(() => undefined);
+      }
+    } catch {
+      // The running process owns its durable executor receipt. A transient hub
+      // outage is not authority to kill it or start a duplicate.
+    }
+  }
+  if (activeExecutorWork.size > 0) {
+    return { processed: false as const, reason: "execution-active" };
+  }
   const inventory = await loadTailscaleDevices();
   if (!inventory.ok) return { processed: false as const, reason: "tailscale-unavailable" };
+  const localDisplayName = inventory.devices.find((device) => device.isSelf)?.name ?? local.deviceId;
   for (const candidate of inventory.devices.filter((device) => !device.isSelf && device.online && device.tailnetIp)) {
     try {
       const advertisement = await remoteCall<Advertisement>(candidate, "GET", "/discovery/advertisement", undefined, DISCOVERY_TIMEOUT_MS);
       if (!advertisement.roles.some((role) => role === "hub" || role === "both")) continue;
-      const auth = await authenticatedRemotePayload(candidate, local.deviceId);
+      const auth = await authenticatedRemotePayload(candidate, local.deviceId, {
+        capabilities: [...new Set([...local.capabilities, "shell", "fleet-chat-turn-v1"])],
+        displayName: localDisplayName,
+      });
       const claimed = await remoteCall<{ job: Record<string, unknown> | null; leaseId?: string }>(
         candidate,
         "POST",
@@ -472,24 +567,109 @@ export async function runExecutorWorkOnce() {
         auth,
       );
       if (!claimed.job || !claimed.leaseId) continue;
-      const result = await localCall<Record<string, unknown>>(
-        "POST",
-        "/api/v1/fleet/local-jobs/run",
-        claimed.job,
-      );
-      const completionAuth = await authenticatedRemotePayload(candidate, local.deviceId, {
-        jobId: claimed.job.jobId,
-        leaseId: claimed.leaseId,
-        result,
-      });
-      await remoteCall(candidate, "POST", "/fleet/jobs/complete", completionAuth);
-      return { processed: true as const, jobId: claimed.job.jobId, result };
+      const claimedJob = claimed.job;
+      const jobId = typeof claimedJob.jobId === "string" ? claimedJob.jobId : "";
+      if (!jobId) continue;
+      const active: ActiveExecutorWork = {
+        candidate,
+        nodeId: local.deviceId,
+        forwardedSequence: 0,
+      };
+      activeExecutorWork.set(jobId, active);
+      const execution = (async () => {
+        try {
+          const resolvedJob = await resolveExecutorWorkspace(claimedJob);
+          let result: Record<string, unknown>;
+          try {
+            result = await localCall<Record<string, unknown>>(
+              "POST",
+              "/api/v1/fleet/local-jobs/run",
+              resolvedJob,
+              3_660_000,
+            );
+          } catch (error) {
+            const now = new Date().toISOString();
+            result = {
+              protocolVersion: "coven.executor.v1",
+              jobId,
+              status: "rejected",
+              exitCode: null,
+              stdout: "",
+              stderr: "",
+              startedAt: now,
+              finishedAt: now,
+              durationMs: 0,
+              error: error instanceof Error ? error.message : "The executor rejected this turn.",
+              serviceAdvertisements: [],
+            };
+          }
+          await forwardExecutorEvents(jobId, active).catch(() => undefined);
+          const completionAuth = await authenticatedRemotePayload(candidate, local.deviceId, {
+            jobId,
+            leaseId: claimed.leaseId,
+            result,
+          });
+          await remoteCall(candidate, "POST", "/fleet/jobs/complete", completionAuth);
+        } catch {
+          // The executor receipt prevents a future lease from rerunning this
+          // turn. The next poll can reconcile a cached terminal result.
+        } finally {
+          activeExecutorWork.delete(jobId);
+        }
+      })();
+      void execution;
+      return { processed: true as const, jobId, accepted: true as const };
     } catch {
       // A peer may be a hub without trusting this executor. Continue through
       // the bounded Tailscale inventory without disclosing credential errors.
     }
   }
   return { processed: false as const, reason: "no-work" };
+}
+
+async function resolveExecutorWorkspace(job: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const context = job.context && typeof job.context === "object"
+    ? job.context as Record<string, unknown>
+    : null;
+  const workspace = context?.workspace && typeof context.workspace === "object"
+    ? context.workspace as Record<string, unknown>
+    : null;
+  if (context?.kind !== "fleet-chat-turn" || !workspace) return job;
+  const repositoryUrl = typeof workspace.repositoryUrl === "string" ? workspace.repositoryUrl : "";
+  const projectName = typeof workspace.projectName === "string" ? workspace.projectName : "";
+  const projects = await loadProjects();
+  const repositoryMatches = repositoryUrl
+    ? projects.filter((project) => project.repoUrl === repositoryUrl)
+    : [];
+  const matches = repositoryMatches.length > 0
+    ? repositoryMatches
+    : projects.filter((project) =>
+        projectName && project.name.localeCompare(projectName, undefined, { sensitivity: "base" }) === 0
+      );
+  if (matches.length !== 1) return job;
+  return {
+    ...job,
+    context: {
+      ...context,
+      workspace: { ...workspace, root: matches[0]!.root },
+    },
+  };
+}
+
+async function forwardExecutorEvents(jobId: string, active: ActiveExecutorWork): Promise<void> {
+  while (true) {
+    const events = (await fleetJobEvents(jobId))
+      .filter((event) => event.sequence > active.forwardedSequence)
+      .slice(0, 128);
+    if (events.length === 0) return;
+    const payload = await authenticatedRemotePayload(active.candidate, active.nodeId, {
+      jobId,
+      events,
+    });
+    await remoteCall(active.candidate, "POST", "/fleet/jobs/events", payload);
+    active.forwardedSequence = events.at(-1)?.sequence ?? active.forwardedSequence;
+    if (events.length < 128) return;
+  }
 }
 
 export function configureRole(role: FleetRole) {

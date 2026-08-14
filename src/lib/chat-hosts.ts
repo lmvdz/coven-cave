@@ -19,11 +19,20 @@ import {
 /** Sentinel host id for "this machine" — a real id so local-bound chats can
  *  select local execution explicitly. */
 export const LOCAL_HOST_ID = "local";
+export const FLEET_HOST_PREFIX = "fleet:";
+
+export function isFleetHostOptionId(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.startsWith(FLEET_HOST_PREFIX) && value.length > FLEET_HOST_PREFIX.length;
+}
+
+export function fleetNodeIdFromHostOption(value: string): string | null {
+  return isFleetHostOptionId(value) ? value.slice(FLEET_HOST_PREFIX.length) : null;
+}
 
 export type ChatHostOption = {
-  /** LOCAL_HOST_ID, ssh host string, or omnigent:<host_id>. */
+  /** LOCAL_HOST_ID, ssh host string, fleet:<node_id>, or omnigent:<host_id>. */
   id: string;
-  kind: "local" | "ssh" | "omnigent";
+  kind: "local" | "ssh" | "fleet" | "omnigent";
   label: string;
   cwd?: string;
   /** true/false from a live probe; null = not probed. */

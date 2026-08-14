@@ -1259,6 +1259,7 @@ export const SUITES = {
     "src/lib/server/daemon-travel-reconcile.test.ts",
     "src/app/api/chat/conversation/route.test.ts",
     "src/app/api/chat/conversation/[id]/route.test.ts",
+    "src/app/api/chat/send/fleet/route.test.ts",
     "src/app/api/sessions/[id]/route.test.ts",
     "src/app/api/canvas/route.test.ts",
     "src/app/api/api-contracts.test.ts",

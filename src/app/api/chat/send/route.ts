@@ -208,6 +208,7 @@ import {
   stripConversationStubTurn,
   withConversationLock,
 } from "@/lib/cave-conversations";
+import { resolveActivePath } from "@/lib/conversation-tree";
 import {
   captureWorkBranch,
   cwdFromConversationRuntime,
@@ -1677,6 +1678,31 @@ export async function POST(req: Request) {
   const existingConversation = body.sessionId
     ? await loadConversation(body.sessionId).catch(() => null)
     : null;
+  const activeExistingTurns = existingConversation?.activeLeafId
+    ? resolveActivePath(existingConversation.turns, existingConversation.activeLeafId)
+    : existingConversation?.turns ?? [];
+  const previousTurnRanOnFleet = Boolean(
+    activeExistingTurns.at(-1)?.role === "assistant" &&
+    activeExistingTurns.at(-1)?.responseMetadata?.executorNodeId,
+  );
+  let executionPromptText = promptText;
+  if (previousTurnRanOnFleet) {
+    const context: string[] = [
+      "The hub transcript below is the canonical continuation context. Machine-local session state is not authoritative.",
+      "",
+    ];
+    let bytes = Buffer.byteLength(promptText, "utf8");
+    const selected: ChatTurn[] = [];
+    for (const turn of [...activeExistingTurns].reverse()) {
+      const turnBytes = Buffer.byteLength(turn.text, "utf8");
+      if (bytes + turnBytes > 1024 * 1024) break;
+      selected.unshift(turn);
+      bytes += turnBytes;
+    }
+    for (const turn of selected) context.push(`[${turn.role}]`, turn.text, "");
+    context.push("[current user turn]", promptText);
+    executionPromptText = context.join("\n");
+  }
   // Canonicalize the bound harness id up front so a familiar carrying a
   // package/alias id (e.g. "hermes-agent" for Hermes) is recognized as the
   // trusted "hermes" adapter — otherwise the trust gate below 403s and `coven
@@ -2606,7 +2632,7 @@ export async function POST(req: Request) {
             buildPromptWithFamiliarStartupContext(
               appendMentionedFilesBlock(
                 buildPromptWithResponseControls(
-                  buildPromptWithAttachments(promptText, attachments, {
+                  buildPromptWithAttachments(executionPromptText, attachments, {
                     imagesSupported,
                     imageFilePaths,
                   }),

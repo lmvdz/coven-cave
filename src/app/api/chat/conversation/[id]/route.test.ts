@@ -223,6 +223,27 @@ test("PUT keeps response facts bounded and rejects secret-bearing model metadata
   );
 });
 
+test("GET preserves server-authored bounded Fleet executor provenance", async () => {
+  writeConversation("sess-fleet-metadata", [{
+    id: "remote-assistant",
+    role: "assistant",
+    text: "remote reply",
+    createdAt: "2026-08-14T10:00:00.000Z",
+    responseMetadata: {
+      familiarId: "milo",
+      harness: "claude",
+      model: "claude-sonnet-4-6",
+      runtime: "fleet:node_windows:C:/work/cave",
+      executorNodeId: "node_windows",
+    },
+  }]);
+  const res = await GET(deleteReq(), paramsFor("sess-fleet-metadata"));
+  const json = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(json.conversation.turns[0].responseMetadata.executorNodeId, "node_windows");
+  assert.equal(json.conversation.turns[0].responseMetadata.runtime, "fleet:node_windows:C:/work/cave");
+});
+
 test("PUT does not persist secret-bearing runtime or untrusted provider reasons", async () => {
   const runtimeSecret = await PUT(
     writeReq({

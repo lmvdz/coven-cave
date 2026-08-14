@@ -2,11 +2,17 @@
 import assert from "node:assert/strict";
 import {
   LOCAL_HOST_ID,
+  fleetNodeIdFromHostOption,
+  isFleetHostOptionId,
   chatHostOptions,
   parseConversationRuntime,
   resolveRequestedRuntime,
   sshHostRegistry,
 } from "./chat-hosts.ts";
+
+assert.equal(isFleetHostOptionId("fleet:node_windows"), true);
+assert.equal(fleetNodeIdFromHostOption("fleet:node_windows"), "node_windows");
+assert.equal(isFleetHostOptionId("node_windows"), false, "unprefixed browser input is never a Fleet target");
 
 // ── Registry merge: registered hosts win, familiar bindings fill in, junk drops ──
 const registry = sshHostRegistry({

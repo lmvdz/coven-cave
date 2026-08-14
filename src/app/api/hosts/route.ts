@@ -8,6 +8,7 @@ import { OmnigentClient } from "@/lib/omnigent/client";
 import { omnigentHostOptionId } from "@/lib/omnigent/ids";
 import { isOmnigentEnvConfigured, isOmnigentFleetActive, resolveOmnigentBaseUrl } from "@/lib/omnigent/token";
 import { rejectNonLocalRequest } from "@/lib/server/api-security";
+import { trustedFleetNodes } from "@/lib/server/fleet-control";
 import { terminateProcessTree } from "@/lib/process-execution";
 
 export const dynamic = "force-dynamic";
@@ -83,6 +84,27 @@ async function omnigentHostOptions(
   }
 }
 
+async function fleetHostOptions(): Promise<ChatHostOption[]> {
+  try {
+    const trusted = await trustedFleetNodes();
+    const now = Date.now();
+    return trusted
+      .filter((node) => node.revokedAt === null && node.capabilities?.includes("fleet-chat-turn-v1"))
+      .map((node) => {
+        const seenAt = Date.parse(node.lastSeenAt);
+        const online = Number.isFinite(seenAt) && now - seenAt < 15_000;
+        return {
+          id: `fleet:${node.nodeId}`,
+          kind: "fleet" as const,
+          label: `Fleet · ${node.displayName?.trim() || node.nodeId}`,
+          online,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
 /**
  * GET /api/hosts — the chat host picker's registry: this machine plus every
  * registered ssh host, each ssh host annotated with a live reachability probe
@@ -95,7 +117,7 @@ export async function GET(req: Request) {
 
   const config = await loadConfig();
   const registry = registryFromConfig(config);
-  const options = chatHostOptions({ localLabel: hostname(), registry });
+  const options = chatHostOptions({ localLabel: `This device · ${hostname()}`, registry });
 
   const probe = new URL(req.url).searchParams.get("probe") !== "0";
   let hosts: ChatHostOption[] = options;
@@ -108,8 +130,8 @@ export async function GET(req: Request) {
     hosts = results;
   }
 
-  const fleet = await omnigentHostOptions(config);
-  if (fleet.length) hosts = [...hosts, ...fleet];
+  const [fleet, omnigent] = await Promise.all([fleetHostOptions(), omnigentHostOptions(config)]);
+  if (fleet.length || omnigent.length) hosts = [...hosts, ...fleet, ...omnigent];
 
   return NextResponse.json({ ok: true, hosts });
 }

@@ -138,7 +138,7 @@ export function ComposerResponseSections({
         </button>
       ) : null}
       <div className="composer-options__section">
-        <span className="composer-options__label">Host</span>
+        <span className="composer-options__label">Run on</span>
         <ComposerHostChoices
           options={hostOptions}
           value={hostValue}

@@ -119,7 +119,7 @@ function cleanMetadataRuntime(value: unknown): string | undefined {
   // Conversation runtime facts are Cave's `local:`/`ssh:` display tokens, not
   // arbitrary provider URLs. Reject URL delimiters and userinfo so a client
   // cannot smuggle credentials into persisted metadata.
-  return runtime && /^(?:local|ssh):/.test(runtime) && !/[?#@]/.test(runtime.slice(runtime.indexOf(":") + 1))
+  return runtime && /^(?:local|ssh|fleet):/.test(runtime) && !/[?#@]/.test(runtime.slice(runtime.indexOf(":") + 1))
     ? runtime
     : undefined;
 }
@@ -216,6 +216,7 @@ function normalizeResponseMetadata(
   const caveSessionId = cleanMetadataToken(value.caveSessionId, 160);
   const gatewaySessionId = cleanMetadataToken(value.gatewaySessionId, 160);
   const sessionKey = cleanMetadataToken(value.sessionKey, 256);
+  const executorNodeId = cleanMetadataToken(value.executorNodeId, 160);
   const attentionRequest = normalizeOwnedAttentionRequest(value.attentionRequest, attentionOwner);
 
   return {
@@ -241,6 +242,7 @@ function normalizeResponseMetadata(
     ...(caveSessionId ? { caveSessionId } : {}),
     ...(gatewaySessionId ? { gatewaySessionId } : {}),
     ...(sessionKey ? { sessionKey } : {}),
+    ...(executorNodeId ? { executorNodeId } : {}),
     ...(attentionRequest ? { attentionRequest } : {}),
   };
 }

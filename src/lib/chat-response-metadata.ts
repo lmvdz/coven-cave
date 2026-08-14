@@ -35,6 +35,8 @@ export type ChatResponseMetadata = {
   caveSessionId?: string;
   gatewaySessionId?: string;
   sessionKey?: string;
+  /** Trusted Fleet node that executed this individual turn. */
+  executorNodeId?: string;
   attentionRequest?: {
     sessionId: string;
     turnId: string;
@@ -78,6 +80,15 @@ export function formatRuntime(
     const cwd = sep >= 0 ? homeRelative(rest.slice(sep + 1)) : "";
     if (!cwd) return { label: host, title: `${host} (ssh)` };
     return { label: `${host}:${shortenPath(cwd)}`, title: `${host}:${cwd} (ssh)` };
+  }
+  if (trimmed.startsWith("fleet:")) {
+    const rest = trimmed.slice("fleet:".length);
+    const sep = rest.indexOf(":");
+    const node = sep >= 0 ? rest.slice(0, sep) : rest;
+    const workspace = sep >= 0 ? homeRelative(rest.slice(sep + 1)) : "";
+    return workspace
+      ? { label: `${node}:${shortenPath(workspace)}`, title: `${node}:${workspace} (Fleet executor)` }
+      : { label: node, title: `${node} (Fleet executor)` };
   }
   const cwd = homeRelative(trimmed.startsWith("local:") ? trimmed.slice(6) : trimmed);
   return { label: shortenPath(cwd), title: cwd };

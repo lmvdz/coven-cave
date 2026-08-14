@@ -37,7 +37,7 @@ type Candidate = {
   authenticated: boolean;
   error?: string;
 };
-type TrustedNode = { nodeId: string; enrolledAt: string; lastSeenAt: string; revokedAt: string | null };
+type TrustedNode = { nodeId: string; enrolledAt: string; lastSeenAt: string; revokedAt: string | null; displayName?: string | null; capabilities?: string[] };
 type PairingRequest = {
   requestId: string;
   nodeId: string;
@@ -48,7 +48,7 @@ type PairingRequest = {
 type FleetJob = {
   jobId: string;
   targetNodeId: string;
-  state: "queued" | "leased" | "completed" | "failed";
+  state: "queued" | "leased" | "completed" | "failed" | "cancelled";
   result: { stdout?: string; stderr?: string; error?: string | null } | null;
   createdAt: string;
   completedAt: string | null;
@@ -449,7 +449,7 @@ export function FleetSection() {
             {activeTrusted.map((node) => (
               <div key={node.nodeId} className="settings-fleet-trusted-row">
                 <span className="settings-fleet-device-icon" aria-hidden><Icon name="ph:desktop" width={16} /></span>
-                <div><strong>{shortId(node.nodeId)}</strong><span>Last authenticated <RelativeTime iso={node.lastSeenAt} fallback="unknown" /> · trusted <RelativeTime iso={node.enrolledAt} fallback="unknown" /></span></div>
+                <div><strong>{node.displayName?.trim() || shortId(node.nodeId)}</strong><span>{shortId(node.nodeId)} · last authenticated <RelativeTime iso={node.lastSeenAt} fallback="unknown" /> · trusted <RelativeTime iso={node.enrolledAt} fallback="unknown" /></span></div>
                 <Button variant="secondary" size="xs" loading={busy === `dispatch:${node.nodeId}`} disabled={busy !== null} onClick={() => void dispatchSystemInfo(node)}>Run system check</Button>
                 <Button variant="danger-ghost" size="xs" onClick={() => void revoke(node)}>Revoke</Button>
               </div>
@@ -469,10 +469,10 @@ export function FleetSection() {
                 <div key={job.jobId} className="settings-fleet-trusted-row">
                   <span className="settings-fleet-device-icon" aria-hidden><Icon name="ph:terminal-window-bold" width={16} /></span>
                   <div>
-                    <strong>{job.state === "completed" ? "System check completed" : job.state === "failed" ? "System check failed" : "System check queued"}</strong>
+                    <strong>{job.state === "completed" ? "Fleet job completed" : job.state === "failed" ? "Fleet job failed" : job.state === "cancelled" ? "Fleet job cancelled" : "Fleet job queued"}</strong>
                     <span>{shortId(job.targetNodeId)} · {job.result?.stdout?.trim() || job.result?.error || "Waiting for the executor…"}</span>
                   </div>
-                  <StateDot tone={job.state === "completed" ? "success" : job.state === "failed" ? "warning" : "neutral"} label={job.state} />
+                  <StateDot tone={job.state === "completed" ? "success" : job.state === "failed" || job.state === "cancelled" ? "warning" : "neutral"} label={job.state} />
                 </div>
               ))}
             </div>

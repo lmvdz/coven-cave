@@ -153,7 +153,7 @@ import {
 } from "@/lib/file-mention";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { LOCAL_HOST_ID, parseConversationRuntime } from "@/lib/chat-hosts";
+import { fleetNodeIdFromHostOption, isFleetHostOptionId, LOCAL_HOST_ID, parseConversationRuntime } from "@/lib/chat-hosts";
 import { isOmnigentHostOptionId } from "@/lib/omnigent/ids";
 import { startOmnigentRunFromBrowser } from "@/lib/omnigent/browser-run";
 import type { ComposerOptionSection } from "@/components/composer-options-menu";
@@ -1397,6 +1397,9 @@ function metaLineSegments(args: {
  *  no such metadata (e.g. a bridge harness that emits no usage/runtime). */
 function turnMetaPeekTitle(turn: Turn): string | null {
   const parts: string[] = [];
+  if (turn.responseMetadata?.executorNodeId) {
+    parts.push(`Fleet executor ${turn.responseMetadata.executorNodeId}`);
+  }
   const model = responseMetadataModel(turn.responseMetadata);
   if (model) parts.push(model);
   const runtime = formatRuntime(turn.responseMetadata?.runtime ?? null);
@@ -3024,6 +3027,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeSlashOptionRef = useRef<HTMLButtonElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const remoteFleetTurnRef = useRef<string | null>(null);
   // Queue state is ref-mirrored because a stream's settle path drains it from
   // an async closure, where React state alone could be one render behind.
   const queuedMessagesRef = useRef<QueuedChatMessage[]>([]);
@@ -4973,6 +4977,12 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
       controlsOverride && "queuedRuntimeHost" in controlsOverride
         ? controlsOverride.queuedRuntimeHost
         : (controlsOverride?.runtimeHost ?? runtimeHost);
+    if (isFleetHostOptionId(fleetHost) && !sessionId) {
+      const message = "Run the first turn on this device, then choose a Fleet executor for any following turn.";
+      setError(message);
+      announce(message, "assertive");
+      return;
+    }
     if (isOmnigentHostOptionId(fleetHost) && submitPrompt) {
       const systemBrowserReservation = reserveSystemBrowserUrlWindow();
       let systemBrowserReservationConsumed = false;
@@ -5212,13 +5222,22 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
         emitAttentionClear(liveGeneration.sessionId, runId, liveGeneration.clearWatermark);
         attentionSettlement.markAttentionCleared(liveGeneration.sessionId);
       }
-      const res = await fetch("/api/chat/send", {
+      const fleetNodeId = fleetNodeIdFromHostOption(fleetHost ?? "");
+      if (fleetNodeId) remoteFleetTurnRef.current = userTurn.id;
+      const res = await fetch(fleetNodeId ? "/api/chat/send/fleet" : "/api/chat/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           familiarId: familiar.id,
           prompt: submitPrompt,
           runId,
+          ...(fleetNodeId
+            ? {
+                turnId: userTurn.id,
+                targetNodeId: fleetNodeId,
+                ...(userTurn.parentId ? { parentTurnId: userTurn.parentId } : {}),
+              }
+            : {}),
           ...(outgoingAttachments.length ? { attachments: stripPreviewOnlyAttachmentFieldsKeepingImages(outgoingAttachments) } : {}),
           ...(origin ? { origin } : {}),
           sessionId: liveGeneration.sessionId,
@@ -5406,7 +5425,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
         });
         try {
           const recovery = await fetch(
-            `/api/chat/stream?runId=${encodeURIComponent(runId)}&cursor=${cursor}`,
+            fleetNodeId && liveGeneration.sessionId
+              ? `/api/chat/send/fleet?turnId=${encodeURIComponent(userTurn.id)}&sessionId=${encodeURIComponent(liveGeneration.sessionId)}&cursor=${cursor}`
+              : `/api/chat/stream?runId=${encodeURIComponent(runId)}&cursor=${cursor}`,
             { cache: "no-store", signal: controller.signal },
           );
           if (recovery.ok && recovery.body) {
@@ -5506,6 +5527,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
       if (abortRef.current === controller) {
         streamOwnerRef.current = false;
         abortRef.current = null;
+        remoteFleetTurnRef.current = null;
         stopKeysRef.current = { runId: null, sessionId: null };
         setBusy(false);
         // Deliver exactly one follow-up only after a natural, successful
@@ -5530,7 +5552,14 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
 
   const cancelSend = () => {
     const { runId, sessionId } = stopKeysRef.current;
-    if (runId || sessionId) {
+    const remoteTurnId = remoteFleetTurnRef.current;
+    if (remoteTurnId) {
+      void fetch(`/api/chat/send/fleet?turnId=${encodeURIComponent(remoteTurnId)}`, {
+        method: "DELETE",
+      }).catch(() => {
+        /* best-effort; the durable Fleet job remains visible on the hub */
+      });
+    } else if (runId || sessionId) {
       // Deliberate Stop is an explicit server call (kills the harness and
       // persists the honest cancelled record); the abort below only tears
       // down this client's stream.
@@ -5545,7 +5574,10 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
         /* best-effort — the server's detach cap still bounds the run */
       });
     }
-    abortRef.current?.abort();
+    // A remote Stop first travels through the durable hub state. Keep its SSE
+    // attached long enough to receive and persist the executor's cancelled
+    // terminal state; local runs still abort immediately after their stop RPC.
+    if (!remoteTurnId) abortRef.current?.abort();
   };
 
   function retryFailedSend(optionOverrides?: Partial<ChatSendOptions>) {
