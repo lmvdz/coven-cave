@@ -11,7 +11,7 @@ test("a new send skips a rejected optimistic user/assistant pair", () => {
       id: "optimistic-assistant",
       parentId: "optimistic-user",
       role: "assistant",
-      lifecycle: "error",
+      lifecycle: "failed",
     },
   ];
 
@@ -33,7 +33,7 @@ test("a rejected first follow-up returns the root branch point", () => {
     durableSendParentId(
       [
         { id: "optimistic-user", parentId: null, role: "user" },
-        { id: "optimistic-assistant", parentId: "optimistic-user", role: "assistant", lifecycle: "error" },
+        { id: "optimistic-assistant", parentId: "optimistic-user", role: "assistant", lifecycle: "failed" },
       ],
       "optimistic-assistant",
     ),

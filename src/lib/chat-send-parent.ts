@@ -20,7 +20,12 @@ export function durableSendParentId(
   const byId = new Map(turns.map((turn) => [turn.id, turn]));
   const leaf = byId.get(activeLeafId);
   if (!leaf) return null;
-  if (leaf.role !== "assistant" || leaf.lifecycle !== "error") return leaf.id;
+  if (
+    leaf.role !== "assistant" ||
+    (leaf.lifecycle !== "failed" && leaf.lifecycle !== "error")
+  ) {
+    return leaf.id;
+  }
 
   const optimisticUser = leaf.parentId ? byId.get(leaf.parentId) : undefined;
   if (optimisticUser?.role === "user") return optimisticUser.parentId ?? null;
