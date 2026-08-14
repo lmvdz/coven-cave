@@ -20,6 +20,7 @@ type LocalNode = {
   lifecycle: FleetLifecycle;
   executorShared: boolean;
   capabilities: string[];
+  availableHarnesses?: string[];
   acceptingJobs: boolean;
   generation: number;
   updatedAt: string;
@@ -65,6 +66,11 @@ type Snapshot = {
     port: number;
     error: string | null;
   };
+  executorActivity: Array<{
+    jobId: string;
+    phase: "claimed" | "running" | "returning";
+    startedAt: string;
+  }>;
   candidates: Candidate[];
 };
 type Enrollment = { credential: string; expiresAt: string; singleUse: true };
@@ -119,8 +125,8 @@ export function FleetSection() {
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [outbound, setOutbound] = useState<Outbound | null>(null);
 
-  const refresh = useCallback(async (announceResult = false) => {
-    setLoading(true);
+  const refresh = useCallback(async (announceResult = false, silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const response = await fetch("/api/fleet", { cache: "no-store" });
@@ -132,11 +138,15 @@ export function FleetSection() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Fleet status is unavailable.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [announce]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const interval = window.setInterval(() => void refresh(false, true), 5_000);
+    return () => window.clearInterval(interval);
+  }, [refresh]);
 
   const mutate = useCallback(async (key: string, body: object, success: string) => {
     setBusy(key);
@@ -343,6 +353,15 @@ export function FleetSection() {
           ) : null}
           <p className="settings-fleet-availability" role="status">
             {snapshot.local.acceptingJobs ? "Available for trusted work." : snapshot.local.nextAction === "enable-sharing" ? "Running, but executor sharing is off." : `Not accepting work while ${snapshot.local.lifecycle}.`}
+          </p>
+          {snapshot.executorActivity.map((activity) => (
+            <div className="settings-fleet-activity" role="status" key={activity.jobId}>
+              <StateDot tone="success" label={activity.phase === "claimed" ? "Preparing Fleet turn" : activity.phase === "running" ? "Running Fleet turn" : "Returning Fleet response"} />
+              <span>Started <RelativeTime iso={activity.startedAt} fallback="just now" /></span>
+            </div>
+          ))}
+          <p className="settings-fleet-capabilities">
+            Runtimes · {snapshot.local.availableHarnesses?.length ? snapshot.local.availableHarnesses.join(", ") : "none detected"}
           </p>
           <p className="settings-fleet-capabilities">
             Capabilities · {snapshot.local.capabilities.length > 0 ? snapshot.local.capabilities.join(", ") : "none reported"}

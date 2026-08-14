@@ -13,6 +13,7 @@ import { capturePortableFleetWorkspace } from "@/lib/server/fleet-workspace";
 import { buildFamiliarContractBlock } from "@/lib/server/familiar-contract-context";
 import { resolveFleetParentTurnId } from "@/lib/server/fleet-parent-resolution";
 import { fleetExecutionFailureMessage } from "@/lib/server/fleet-result-message";
+import { parseFleetProgressLine } from "@/lib/server/fleet-progress-event";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -301,6 +302,12 @@ export async function POST(req: Request) {
           while (newline >= 0) {
             const line = lineBuffer.slice(0, newline);
             lineBuffer = lineBuffer.slice(newline + 1);
+            const progress = parseFleetProgressLine(line);
+            if (progress) {
+              push(progress);
+              newline = lineBuffer.indexOf("\n");
+              continue;
+            }
             const text = extractRewrite(`${line}\n`);
             if (text) {
               streamedText += text;

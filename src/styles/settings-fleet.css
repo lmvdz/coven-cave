@@ -31,6 +31,8 @@
 .settings-fleet-controls { padding-top: var(--space-3); border-top: 1px solid var(--border-hairline); }
 .settings-fleet-sharing { justify-content: space-between; margin-top: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border-hairline); }
 .settings-fleet-availability, .settings-fleet-capabilities, .settings-fleet-empty, .settings-fleet-loading { margin: 0; color: var(--text-muted); }
+.settings-fleet-activity { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-3); color: var(--text-secondary); background: color-mix(in oklch, var(--color-success) 14%, transparent); border: 1px solid color-mix(in oklch, var(--color-success) 38%, var(--border-hairline)); border-radius: var(--radius-control); }
+.settings-fleet-activity > span:last-child { color: var(--text-muted); font-size: var(--text-xs); }
 .settings-fleet-capabilities { margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-2xs); }
 .settings-fleet-candidates, .settings-fleet-trusted, .settings-fleet-incoming { display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-fleet-candidate, .settings-fleet-trusted-row, .settings-fleet-incoming-row { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-3); color: var(--text-primary); text-align: left; background: var(--bg-raised); border: 1px solid var(--border-hairline); border-radius: var(--radius-control); }

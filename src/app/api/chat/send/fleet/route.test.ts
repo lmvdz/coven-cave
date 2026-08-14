@@ -15,11 +15,13 @@ assert.match(route, /delete current\.harnessSessionId/, "a machine-local resume 
 assert.match(route, /runtime = `fleet:\$\{targetNodeId\}:\$\{projectRoot\}`/);
 assert.match(route, /executorNodeId: targetNodeId/, "persisted response metadata carries executor provenance");
 assert.match(route, /fleetJobEvents[\s\S]*?assistant_chunk/, "executor JSONL events are projected into the existing chat stream");
+assert.match(route, /parseFleetProgressLine\(line\)[\s\S]*?push\(progress\)/, "structured executor phases share the durable Fleet event stream without becoming assistant text");
 assert.match(route, /capturePortableFleetWorkspace\(projectRoot, project\.repoUrl\)/, "the hub captures repository identity, revision, and dirty state without exposing its path");
 assert.match(route, /buildFamiliarContractBlock\(familiarId, \{ portable: true \}\)[\s\S]*?contextMessages\.push\(\{ role: "system", text: familiarIntent \}\)/, "portable familiar identity and skills are reserved ahead of canonical transcript context");
 assert.doesNotMatch(route, /nodeCredential|requestSecret|proof:/, "Fleet credentials never enter the browser route payload");
 assert.match(control, /authenticatedRemotePayload[\s\S]*?capabilities:[\s\S]*?fleet-managed-workspace-v1/, "executor heartbeats advertise managed-workspace compatibility");
 assert.match(control, /acceptingJobs: local\.acceptingJobs,[\s\S]*?availabilityReason/, "executor heartbeats distinguish stopped, draining, and unshared states before dispatch");
+assert.match(control, /fleet-runtime-inventory-v1[\s\S]*?`harness:\$\{harness\}`/, "executor heartbeats advertise detected runtimes without exposing paths or credentials");
 assert.match(control, /\/api\/v1\/fleet\/local-jobs\/run[\s\S]*?claimedJob/, "the Cave worker forwards the portable job unchanged to Coven's workspace authority");
 assert.doesNotMatch(control, /loadProjects|executorWorkspaceInventory/, "remote execution never requires matching project registration on the executor");
 assert.match(control, /activeExecutorWork[\s\S]*?forwardExecutorEvents[\s\S]*?\/fleet\/jobs\/status/, "background execution keeps streaming and cancellation polls alive beyond the native worker timeout");

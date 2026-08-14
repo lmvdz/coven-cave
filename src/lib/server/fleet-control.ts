@@ -24,6 +24,7 @@ export type LocalFleetNode = {
   lifecycle: FleetLifecycle;
   executorShared: boolean;
   capabilities: string[];
+  availableHarnesses?: string[];
   acceptingJobs: boolean;
   generation: number;
   updatedAt: string;
@@ -96,6 +97,8 @@ type ActiveExecutorWork = {
   candidate: TailscaleDevice;
   nodeId: string;
   forwardedSequence: number;
+  phase: "claimed" | "running" | "returning";
+  startedAt: string;
 };
 
 const activeExecutorWork = new Map<string, ActiveExecutorWork>();
@@ -437,6 +440,11 @@ export async function fleetSnapshot() {
       port: FLEET_PORT,
       error: transportState === "conflict" ? fleetTransportConflictMessage() : null,
     },
+    executorActivity: [...activeExecutorWork.entries()].map(([jobId, active]) => ({
+      jobId,
+      phase: active.phase,
+      startedAt: active.startedAt,
+    })),
     candidates,
   };
 }
@@ -571,6 +579,12 @@ export async function runExecutorWorkOnce() {
           "shell",
           "fleet-chat-turn-v1",
           "fleet-managed-workspace-v1",
+          ...(Array.isArray(local.availableHarnesses)
+            ? [
+                "fleet-runtime-inventory-v1",
+                ...local.availableHarnesses.map((harness) => `harness:${harness}`),
+              ]
+            : []),
         ])],
         displayName: localDisplayName,
         acceptingJobs: local.acceptingJobs,
@@ -590,12 +604,15 @@ export async function runExecutorWorkOnce() {
         candidate,
         nodeId: local.deviceId,
         forwardedSequence: 0,
+        phase: "claimed",
+        startedAt: new Date().toISOString(),
       };
       activeExecutorWork.set(jobId, active);
       const execution = (async () => {
         try {
           let result: Record<string, unknown>;
           try {
+            active.phase = "running";
             result = await localCall<Record<string, unknown>>(
               "POST",
               "/api/v1/fleet/local-jobs/run",
@@ -618,6 +635,7 @@ export async function runExecutorWorkOnce() {
               serviceAdvertisements: [],
             };
           }
+          active.phase = "returning";
           await forwardExecutorEvents(jobId, active).catch(() => undefined);
           const completionAuth = await authenticatedRemotePayload(candidate, local.deviceId, {
             jobId,
