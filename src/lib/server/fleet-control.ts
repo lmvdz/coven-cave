@@ -6,7 +6,7 @@ import { callDaemonTarget, extractDaemonError, localDaemonTarget } from "../cove
 import { covenLaunchCommand, covenSpawnEnv } from "../coven-bin.ts";
 import { tailscaleBin, tailscaleSpawnEnv } from "../mobile-handoff.ts";
 import { loadTailscaleDevices, type TailscaleDevice } from "./tailscale-devices.ts";
-import { loadProjects } from "../cave-projects.ts";
+import type { PortableFleetWorkspace } from "./fleet-workspace.ts";
 
 export const FLEET_PROTOCOL = "coven.fleet.v1";
 const FLEET_PORT = 8787;
@@ -99,45 +99,6 @@ type ActiveExecutorWork = {
 };
 
 const activeExecutorWork = new Map<string, ActiveExecutorWork>();
-
-type FleetWorkspaceAdvertisement = {
-  projectName: string;
-  repositoryUrl?: string;
-  checkpoint?: string;
-};
-
-let workspaceInventoryCache: { expiresAt: number; value: FleetWorkspaceAdvertisement[] } | null = null;
-
-async function executorWorkspaceInventory(): Promise<FleetWorkspaceAdvertisement[]> {
-  if (workspaceInventoryCache && workspaceInventoryCache.expiresAt > Date.now()) {
-    return workspaceInventoryCache.value;
-  }
-  const projects = (await loadProjects()).slice(0, 128);
-  const value = await Promise.all(projects.map(async (project) => {
-    let checkpoint: string | undefined;
-    try {
-      const result = await execFileAsync("git", ["rev-parse", "HEAD"], {
-        cwd: project.root,
-        encoding: "utf8",
-        timeout: 2_000,
-        windowsHide: true,
-        maxBuffer: 8 * 1024,
-      });
-      const candidate = result.stdout.trim();
-      if (/^[0-9a-f]{40}$/i.test(candidate)) checkpoint = candidate;
-    } catch {
-      // A registered non-Git project is still a valid workspace; it simply
-      // cannot satisfy a turn that pins a Git checkpoint.
-    }
-    return {
-      projectName: project.name,
-      ...(project.repoUrl ? { repositoryUrl: project.repoUrl } : {}),
-      ...(checkpoint ? { checkpoint } : {}),
-    };
-  }));
-  workspaceInventoryCache = { expiresAt: Date.now() + 10_000, value };
-  return value;
-}
 
 type TailscaleServeStatus = {
   TCP?: Record<string, { TCPForward?: string; HTTPS?: boolean; HTTP?: boolean }>;
@@ -524,7 +485,7 @@ export type RemoteFleetTurn = {
   familiarId: string;
   harness: string;
   model?: string;
-  workspace: { root: string; projectName?: string; repositoryUrl?: string; checkpoint?: string };
+  workspace: PortableFleetWorkspace & { projectName?: string };
   prompt: string;
   contextMessages: Array<{ role: "user" | "assistant" | "system"; text: string }>;
   attachments?: Array<{ name: string; mimeType: string; dataBase64: string }>;
@@ -591,7 +552,6 @@ export async function runExecutorWorkOnce() {
   const inventory = await loadTailscaleDevices();
   if (!inventory.ok) return { processed: false as const, reason: "tailscale-unavailable" };
   const localDisplayName = inventory.devices.find((device) => device.isSelf)?.name ?? local.deviceId;
-  const workspaces = await executorWorkspaceInventory();
   const availabilityReason = local.acceptingJobs
     ? "available"
     : local.role !== "executor" && local.role !== "both"
@@ -606,11 +566,15 @@ export async function runExecutorWorkOnce() {
       const advertisement = await remoteCall<Advertisement>(candidate, "GET", "/discovery/advertisement", undefined, DISCOVERY_TIMEOUT_MS);
       if (!advertisement.roles.some((role) => role === "hub" || role === "both")) continue;
       const auth = await authenticatedRemotePayload(candidate, local.deviceId, {
-        capabilities: [...new Set([...local.capabilities, "shell", "fleet-chat-turn-v1"])],
+        capabilities: [...new Set([
+          ...local.capabilities,
+          "shell",
+          "fleet-chat-turn-v1",
+          "fleet-managed-workspace-v1",
+        ])],
         displayName: localDisplayName,
         acceptingJobs: local.acceptingJobs,
         availabilityReason,
-        workspaces,
       });
       const claimed = await remoteCall<{ job: Record<string, unknown> | null; leaseId?: string }>(
         candidate,
@@ -630,13 +594,12 @@ export async function runExecutorWorkOnce() {
       activeExecutorWork.set(jobId, active);
       const execution = (async () => {
         try {
-          const resolvedJob = await resolveExecutorWorkspace(claimedJob);
           let result: Record<string, unknown>;
           try {
             result = await localCall<Record<string, unknown>>(
               "POST",
               "/api/v1/fleet/local-jobs/run",
-              resolvedJob,
+              claimedJob,
               3_660_000,
             );
           } catch (error) {
@@ -680,35 +643,6 @@ export async function runExecutorWorkOnce() {
     processed: false as const,
     reason: local.acceptingJobs ? "no-work" : "executor-unavailable",
     availability: availabilityReason,
-  };
-}
-
-async function resolveExecutorWorkspace(job: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const context = job.context && typeof job.context === "object"
-    ? job.context as Record<string, unknown>
-    : null;
-  const workspace = context?.workspace && typeof context.workspace === "object"
-    ? context.workspace as Record<string, unknown>
-    : null;
-  if (context?.kind !== "fleet-chat-turn" || !workspace) return job;
-  const repositoryUrl = typeof workspace.repositoryUrl === "string" ? workspace.repositoryUrl : "";
-  const projectName = typeof workspace.projectName === "string" ? workspace.projectName : "";
-  const projects = await loadProjects();
-  const repositoryMatches = repositoryUrl
-    ? projects.filter((project) => project.repoUrl === repositoryUrl)
-    : [];
-  const matches = repositoryUrl
-    ? repositoryMatches
-    : projects.filter((project) =>
-        projectName && project.name.localeCompare(projectName, undefined, { sensitivity: "base" }) === 0
-      );
-  if (matches.length !== 1) return job;
-  return {
-    ...job,
-    context: {
-      ...context,
-      workspace: { ...workspace, root: matches[0]!.root },
-    },
   };
 }
 

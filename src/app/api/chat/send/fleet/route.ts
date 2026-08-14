@@ -9,35 +9,17 @@ import type { StreamEvent } from "@/lib/stream-events";
 import { resolveActivePath } from "@/lib/conversation-tree";
 import { loadProjects } from "@/lib/cave-projects";
 import { assertProjectAccess, ProjectAccessDeniedError } from "@/lib/project-permissions";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { capturePortableFleetWorkspace } from "@/lib/server/fleet-workspace";
+import { buildFamiliarContractBlock } from "@/lib/server/familiar-contract-context";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const POLL_MS = 500;
 const MAX_CONTEXT_MESSAGES = 256;
-const MAX_CONTEXT_BYTES = 1024 * 1024;
-const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
+const MAX_CONTEXT_BYTES = 768 * 1024;
+const MAX_ATTACHMENT_BYTES = 768 * 1024;
 const SAFE_ID = /^[A-Za-z0-9._:/-]{1,4096}$/;
-const execFileAsync = promisify(execFile);
-
-async function workspaceCheckpoint(root: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
-      cwd: root,
-      encoding: "utf8",
-      timeout: 3_000,
-      windowsHide: true,
-      maxBuffer: 8 * 1024,
-    });
-    const checkpoint = stdout.trim();
-    return /^[0-9a-f]{40}$/i.test(checkpoint) ? checkpoint : null;
-  } catch {
-    return null;
-  }
-}
-
 type RemoteSendBody = {
   familiarId?: unknown;
   prompt?: unknown;
@@ -75,7 +57,7 @@ function remoteAttachments(value: unknown): Array<{ name: string; mimeType: stri
     }
     if (!dataBase64) continue;
     total += Buffer.byteLength(dataBase64, "base64");
-    if (total > MAX_ATTACHMENT_BYTES) throw new Error("Remote turn attachments exceed 16 MB.");
+    if (total > MAX_ATTACHMENT_BYTES) throw new Error("Remote turn attachments exceed 768 KB.");
     result.push({ name, mimeType, dataBase64 });
   }
   return result;
@@ -232,14 +214,27 @@ export async function POST(req: Request) {
       { status: 403 },
     );
   }
-  const checkpoint = await workspaceCheckpoint(projectRoot);
+  let workspace: Awaited<ReturnType<typeof capturePortableFleetWorkspace>>;
+  try {
+    workspace = await capturePortableFleetWorkspace(projectRoot, project.repoUrl);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "This workspace cannot be prepared for Fleet." },
+      { status: 409 },
+    );
+  }
+  const familiarIntent = await buildFamiliarContractBlock(familiarId, { portable: true });
+  const contextMessages: Array<{ role: "user" | "assistant" | "system"; text: string }> = [];
+  let contextBytes = 0;
+  if (familiarIntent) {
+    contextMessages.push({ role: "system", text: familiarIntent });
+    contextBytes = Buffer.byteLength(familiarIntent, "utf8");
+  }
   const activeTurns = (conversation.activeLeafId
     ? resolveActivePath(conversation.turns, conversation.activeLeafId)
     : conversation.turns)
     .filter((turn) => turn.role === "user" || turn.role === "assistant" || turn.role === "system")
-    .slice(-MAX_CONTEXT_MESSAGES);
-  const contextMessages: Array<{ role: "user" | "assistant" | "system"; text: string }> = [];
-  let contextBytes = 0;
+    .slice(-(MAX_CONTEXT_MESSAGES - contextMessages.length));
   for (const turn of [...activeTurns].reverse()) {
     const text = turn.text.slice(0, 256 * 1024);
     const bytes = Buffer.byteLength(text, "utf8");
@@ -256,12 +251,7 @@ export async function POST(req: Request) {
       familiarId,
       harness: conversation.harness,
       ...(model ? { model } : {}),
-      workspace: {
-        root: projectRoot,
-        ...(project?.name ? { projectName: project.name } : {}),
-        ...(project?.repoUrl ? { repositoryUrl: project.repoUrl } : {}),
-        ...(checkpoint ? { checkpoint } : {}),
-      },
+      workspace: { ...workspace, ...(project?.name ? { projectName: project.name } : {}) },
       prompt,
       contextMessages,
       ...(attachments.length ? { attachments } : {}),

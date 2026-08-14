@@ -442,6 +442,7 @@ export const SUITES = {
     "src/lib/server/daemon-probe.test.ts",
     "src/lib/server/tailscale-devices.test.ts",
     "src/lib/server/fleet-control.test.ts",
+    "src/lib/server/fleet-workspace.test.ts",
     "src/components/settings-familiars-section.test.ts",
     "src/components/settings-familiars-control-sheet.test.ts",
     "src/components/familiar-studio-projects-tab.test.ts",

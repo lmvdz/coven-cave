@@ -66,6 +66,30 @@ test("familiar-local skill entrypoints are advertised from the already-granted w
   assert.match(block, /local same-name skill takes precedence over a generic skill/);
 });
 
+test("Fleet can inline familiar-local skills without leaking hub filesystem paths", async () => {
+  mkdirSync(join(TMP, ".coven"), { recursive: true });
+  writeFileSync(
+    join(TMP, ".coven", "familiars.toml"),
+    '[[familiar]]\nid = "portable-skilled"\ndisplay_name = "Portia"\nrole = "Code reviewer"\n',
+  );
+  writeContractFile("SOUL.md", "## I am Portable", "portable-skilled");
+  writeContractFile(
+    "skills/review/SKILL.md",
+    "---\nname: review\n---\nReview the current diff before answering.\n",
+    "portable-skilled",
+  );
+
+  const block = await buildFamiliarContractBlock("portable-skilled", { portable: true });
+  assert.match(block, /## Selected familiar/);
+  assert.match(block, /- ID: portable-skilled/);
+  assert.match(block, /- Name: Portia/);
+  assert.match(block, /- Role: Code reviewer/);
+  assert.match(block, /### review/);
+  assert.match(block, /Review the current diff before answering/);
+  assert.match(block, /no executor-local familiar setup is required/);
+  assert.doesNotMatch(block, new RegExp(TMP.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
 test("a symlinked skills root cannot advertise entrypoints outside the familiar workspace", async (t) => {
   writeContractFile("SOUL.md", "## I am Milo", "skill-escape");
   const workspace = join(TMP, ".coven", "workspaces", "familiars", "skill-escape");

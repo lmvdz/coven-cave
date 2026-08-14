@@ -5021,12 +5021,18 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
       return;
     }
 
+    // Snapshot the durable branch point before appending the optimistic turns.
+    // A bridge rejection (for example a Fleet workspace preflight) never saves
+    // those optimistic ids, so Retry must not derive its parent from the now
+    // visible failed assistant leaf.
+    const resolvedParentId =
+      opts?.parentTurnId !== undefined ? opts.parentTurnId : (activeLeafId || null);
     const request: FailedSend = {
       text: trimmed,
       attachments: outgoingAttachments,
       ...(outgoingMentions.length ? { mentionedFiles: outgoingMentions } : {}),
       ...(opts?.promptOverride ? { promptOverride: opts.promptOverride } : {}),
-      options: resolvedSendOptions,
+      options: { ...resolvedSendOptions, parentTurnId: resolvedParentId },
       controls: {
         thinkingEffort: controlsOverride?.thinkingEffort ?? thinkingEffort,
         responseSpeed: controlsOverride?.responseSpeed ?? responseSpeed,
@@ -5053,10 +5059,6 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
     displayedCreationRunIdRef.current = runId;
     setHistoryState("loaded");
 
-    // Explicit parentTurnId (including null = root) wins; only fall back to the
-    // current leaf when the caller did not specify a branch point at all.
-    const resolvedParentId =
-      opts?.parentTurnId !== undefined ? opts.parentTurnId : (activeLeafId || null);
     const now = new Date().toISOString();
     const userTurn: Turn = {
       id: crypto.randomUUID(),

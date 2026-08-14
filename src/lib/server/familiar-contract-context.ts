@@ -43,19 +43,37 @@
 //      invariants that exist to constrain self-modification. Feeding those into
 //      the prompt would hand the familiar the exact rules meant to bound it.
 
-import { readdir, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   isValidFamiliarId,
   readFamiliarContractFiles,
 } from "@/lib/server/familiar-contract-files";
+import { covenHome } from "@/lib/coven-paths";
+import { parseFamiliarsToml } from "@/lib/onboarding-familiars";
 
 /** Per-file clamp for SOUL.md / IDENTITY.md — core identity, kept generous. */
 export const FAMILIAR_CONTRACT_FILE_CHARS = 6_000;
 /** Clamp for MEMORY.md, which drifts and can grow without bound. */
 export const FAMILIAR_CONTRACT_MEMORY_CHARS = 4_000;
 const MAX_FAMILIAR_LOCAL_SKILLS = 64;
+const PORTABLE_FAMILIAR_SKILL_CHARS = 6_000;
+const MAX_PORTABLE_FAMILIAR_SKILL_CHARS = 64_000;
 const SAFE_SKILL_ID = /^[a-z0-9][a-z0-9._-]{0,79}$/i;
+
+async function portableFamiliarSelection(familiarId: string): Promise<string> {
+  const entries = await readFile(path.join(covenHome(), "familiars.toml"), "utf8")
+    .then(parseFamiliarsToml)
+    .catch(() => []);
+  const familiar = entries.find((entry) => entry.id === familiarId);
+  const rows = [`- ID: ${familiarId}`];
+  if (familiar?.displayName?.trim()) rows.push(`- Name: ${clampContractBlock(familiar.displayName, 500)}`);
+  if (familiar?.role?.trim()) rows.push(`- Role: ${clampContractBlock(familiar.role, 1_000)}`);
+  if (familiar?.description?.trim()) {
+    rows.push(`- Description: ${clampContractBlock(familiar.description, 2_000)}`);
+  }
+  return `## Selected familiar\n${defangContractSentinels(rows.join("\n"))}`;
+}
 
 export const FAMILIAR_CONTRACT_OPEN = "<FAMILIAR_CONTRACT>";
 export const FAMILIAR_CONTRACT_CLOSE = "</FAMILIAR_CONTRACT>";
@@ -142,7 +160,7 @@ function section(heading: string, body: string, cap: number): string {
   return `## ${heading}\n${defangContractSentinels(clampContractBlock(body, cap))}`;
 }
 
-async function familiarLocalSkillsSection(workspace: string): Promise<{
+async function familiarLocalSkillsSection(workspace: string, portable: boolean): Promise<{
   section: string | null;
   loaded: string[];
 }> {
@@ -173,6 +191,7 @@ async function familiarLocalSkillsSection(workspace: string): Promise<{
   }
   const rows: string[] = [];
   const loaded: string[] = [];
+  let portableChars = 0;
   for (const entry of entries
     .filter((candidate) => candidate.isDirectory() && SAFE_SKILL_ID.test(candidate.name))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -189,7 +208,14 @@ async function familiarLocalSkillsSection(workspace: string): Promise<{
       ) {
         continue;
       }
-      rows.push(`- ${entry.name}: ${resolved}`);
+      if (portable) {
+        const contents = clampContractBlock(await readFile(resolved, "utf8"), PORTABLE_FAMILIAR_SKILL_CHARS);
+        if (!contents || portableChars + contents.length > MAX_PORTABLE_FAMILIAR_SKILL_CHARS) continue;
+        portableChars += contents.length;
+        rows.push(`### ${entry.name}\n${defangContractSentinels(contents)}`);
+      } else {
+        rows.push(`- ${entry.name}: ${resolved}`);
+      }
       loaded.push(`skills/${entry.name}/SKILL.md`);
     } catch {
       // Missing, unreadable, or out-of-boundary entrypoints are omitted.
@@ -199,7 +225,9 @@ async function familiarLocalSkillsSection(workspace: string): Promise<{
   return {
     section: [
       "## Familiar-local skills",
-      "These are this familiar's declared skill entrypoints. When a task matches one, load this workspace-local copy before acting; a local same-name skill takes precedence over a generic skill unless the user explicitly requests the generic copy.",
+      portable
+        ? "These bounded skill entrypoints were supplied by the hub. Follow a matching skill directly from this canonical context; no executor-local familiar setup is required."
+        : "These are this familiar's declared skill entrypoints. When a task matches one, load this workspace-local copy before acting; a local same-name skill takes precedence over a generic skill unless the user explicitly requests the generic copy.",
       ...rows,
     ].join("\n"),
     loaded,
@@ -214,6 +242,8 @@ export type FamiliarContractBlockOptions = {
    * durable file too would double the memory surface for no added identity.
    */
   includeMemory?: boolean;
+  /** Include bounded identity metadata and inline skills for a Fleet executor. */
+  portable?: boolean;
 };
 
 export type FamiliarContractContext = {
@@ -259,12 +289,14 @@ export async function buildFamiliarContractContext(
     if (contents.trim().length > cap) clamped.push(name);
   };
 
+  if (options.portable) sections.push(await portableFamiliarSelection(familiarId));
+
   if (files.soul?.trim()) add("SOUL.md", files.soul, FAMILIAR_CONTRACT_FILE_CHARS);
   if (files.identity?.trim()) add("IDENTITY.md", files.identity, FAMILIAR_CONTRACT_FILE_CHARS);
   if (options.includeMemory && files.memory?.trim()) {
     add("MEMORY.md", files.memory, FAMILIAR_CONTRACT_MEMORY_CHARS);
   }
-  const localSkills = await familiarLocalSkillsSection(workspace);
+  const localSkills = await familiarLocalSkillsSection(workspace, options.portable === true);
   if (localSkills.section) {
     sections.push(localSkills.section);
     loaded.push(...localSkills.loaded);

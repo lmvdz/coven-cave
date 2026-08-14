@@ -213,6 +213,12 @@ assert.match(
 
 assert.match(
   source,
+  /const resolvedParentId =[\s\S]*?opts\?\.parentTurnId !== undefined \? opts\.parentTurnId : \(activeLeafId \|\| null\);[\s\S]*?const request: FailedSend =[\s\S]*?options: \{ \.\.\.resolvedSendOptions, parentTurnId: resolvedParentId \}/,
+  "failed-send retries must preserve the durable pre-attempt parent instead of parenting onto an unpersisted optimistic error turn",
+);
+
+assert.match(
+  source,
   /"queuedRuntimeHost" in controlsOverride[\s\S]*?\? controlsOverride\.queuedRuntimeHost[\s\S]*?: \(controlsOverride\?\.runtimeHost \?\? runtimeHost\)/,
   "a queued automatic host choice must not be replaced by a later host picker change",
 );
@@ -746,7 +752,7 @@ assert.match(
 // not clobber a newer concurrent stream's abort/stop wiring or unlock the composer.
 assert.match(
   source,
-  /if \(abortRef\.current === controller\) \{\s*\n\s*streamOwnerRef\.current = false;\s*\n\s*abortRef\.current = null;\s*\n\s*stopKeysRef\.current = \{ runId: null, sessionId: null \};\s*\n\s*setBusy\(false\);/,
+  /if \(abortRef\.current === controller\) \{\s*\n\s*streamOwnerRef\.current = false;\s*\n\s*abortRef\.current = null;\s*\n\s*remoteFleetTurnRef\.current = null;\s*\n\s*stopKeysRef\.current = \{ runId: null, sessionId: null \};\s*\n\s*setBusy\(false\);/,
   "sendRaw's finally only tears down the shared stream wiring when it still owns the active controller",
 );
 
