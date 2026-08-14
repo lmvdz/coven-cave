@@ -207,13 +207,13 @@ assert.match(
 
 assert.match(
   source,
-  /if \(\(busy \|\| abortRef\.current\) && !allowBusy\) \{[\s\S]*?parentTurnId:\s*opts\?\.parentTurnId !== undefined \? opts\.parentTurnId : \(activeLeafId \|\| null\)/,
+  /if \(\(busy \|\| abortRef\.current\) && !allowBusy\) \{[\s\S]*?parentTurnId:[\s\S]*?opts\?\.parentTurnId !== undefined[\s\S]*?durableSendParentId\(turnsRef\.current, activeLeafId\)/,
   "programmatic sends that queue through sendRaw must capture their visible branch leaf before later navigation can change it",
 );
 
 assert.match(
   source,
-  /const resolvedParentId =[\s\S]*?opts\?\.parentTurnId !== undefined \? opts\.parentTurnId : \(activeLeafId \|\| null\);[\s\S]*?const request: FailedSend =[\s\S]*?options: \{ \.\.\.resolvedSendOptions, parentTurnId: resolvedParentId \}/,
+  /const resolvedParentId =[\s\S]*?opts\?\.parentTurnId !== undefined[\s\S]*?durableSendParentId\(turnsRef\.current, activeLeafId\);[\s\S]*?const request: FailedSend =[\s\S]*?options: \{ \.\.\.resolvedSendOptions, parentTurnId: resolvedParentId \}/,
   "failed-send retries must preserve the durable pre-attempt parent instead of parenting onto an unpersisted optimistic error turn",
 );
 

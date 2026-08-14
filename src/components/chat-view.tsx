@@ -85,6 +85,7 @@ import {
   type Turn,
 } from "@/lib/chat-turn-state";
 import { groupTranscriptTurns, type TranscriptGroup } from "@/lib/chat-transcript-groups";
+import { durableSendParentId } from "@/lib/chat-send-parent";
 import { generateChatTitle } from "@/lib/chat-title-generation";
 import { chatTurnGapLabel } from "@/lib/chat-turn-gap";
 import {
@@ -4953,7 +4954,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
           // queue time as well. An explicit parent (including null) still
           // wins for regenerate/edit flows.
           parentTurnId:
-            opts?.parentTurnId !== undefined ? opts.parentTurnId : (activeLeafId || null),
+            opts?.parentTurnId !== undefined
+              ? opts.parentTurnId
+              : durableSendParentId(turnsRef.current, activeLeafId),
         },
         controls: {
           thinkingEffort: controlsOverride?.thinkingEffort ?? thinkingEffort,
@@ -5026,7 +5029,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView(
     // those optimistic ids, so Retry must not derive its parent from the now
     // visible failed assistant leaf.
     const resolvedParentId =
-      opts?.parentTurnId !== undefined ? opts.parentTurnId : (activeLeafId || null);
+      opts?.parentTurnId !== undefined
+        ? opts.parentTurnId
+        : durableSendParentId(turnsRef.current, activeLeafId);
     const request: FailedSend = {
       text: trimmed,
       attachments: outgoingAttachments,
