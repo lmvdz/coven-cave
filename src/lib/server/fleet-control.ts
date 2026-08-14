@@ -50,6 +50,7 @@ export type TrustedFleetNode = {
   revokedAt: string | null;
   displayName?: string | null;
   capabilities?: string[];
+  executorAvailability?: "available" | "draining" | "unshared" | "stopped" | "not-executor" | "unknown" | string;
 };
 
 export type PairingRequest = {
@@ -98,6 +99,45 @@ type ActiveExecutorWork = {
 };
 
 const activeExecutorWork = new Map<string, ActiveExecutorWork>();
+
+type FleetWorkspaceAdvertisement = {
+  projectName: string;
+  repositoryUrl?: string;
+  checkpoint?: string;
+};
+
+let workspaceInventoryCache: { expiresAt: number; value: FleetWorkspaceAdvertisement[] } | null = null;
+
+async function executorWorkspaceInventory(): Promise<FleetWorkspaceAdvertisement[]> {
+  if (workspaceInventoryCache && workspaceInventoryCache.expiresAt > Date.now()) {
+    return workspaceInventoryCache.value;
+  }
+  const projects = (await loadProjects()).slice(0, 128);
+  const value = await Promise.all(projects.map(async (project) => {
+    let checkpoint: string | undefined;
+    try {
+      const result = await execFileAsync("git", ["rev-parse", "HEAD"], {
+        cwd: project.root,
+        encoding: "utf8",
+        timeout: 2_000,
+        windowsHide: true,
+        maxBuffer: 8 * 1024,
+      });
+      const candidate = result.stdout.trim();
+      if (/^[0-9a-f]{40}$/i.test(candidate)) checkpoint = candidate;
+    } catch {
+      // A registered non-Git project is still a valid workspace; it simply
+      // cannot satisfy a turn that pins a Git checkpoint.
+    }
+    return {
+      projectName: project.name,
+      ...(project.repoUrl ? { repositoryUrl: project.repoUrl } : {}),
+      ...(checkpoint ? { checkpoint } : {}),
+    };
+  }));
+  workspaceInventoryCache = { expiresAt: Date.now() + 10_000, value };
+  return value;
+}
 
 type TailscaleServeStatus = {
   TCP?: Record<string, { TCPForward?: string; HTTPS?: boolean; HTTP?: boolean }>;
@@ -524,7 +564,6 @@ export function cancelFleetJob(jobId: string) {
 
 export async function runExecutorWorkOnce() {
   const local = await localCall<LocalFleetNode>("GET", "/api/v1/fleet/local-node");
-  if (!local.acceptingJobs) return { processed: false as const, reason: "executor-unavailable" };
   for (const [jobId, active] of activeExecutorWork) {
     try {
       await forwardExecutorEvents(jobId, active);
@@ -552,6 +591,16 @@ export async function runExecutorWorkOnce() {
   const inventory = await loadTailscaleDevices();
   if (!inventory.ok) return { processed: false as const, reason: "tailscale-unavailable" };
   const localDisplayName = inventory.devices.find((device) => device.isSelf)?.name ?? local.deviceId;
+  const workspaces = await executorWorkspaceInventory();
+  const availabilityReason = local.acceptingJobs
+    ? "available"
+    : local.role !== "executor" && local.role !== "both"
+      ? "not-executor"
+      : !local.executorShared
+        ? "unshared"
+        : local.lifecycle === "draining"
+          ? "draining"
+          : "stopped";
   for (const candidate of inventory.devices.filter((device) => !device.isSelf && device.online && device.tailnetIp)) {
     try {
       const advertisement = await remoteCall<Advertisement>(candidate, "GET", "/discovery/advertisement", undefined, DISCOVERY_TIMEOUT_MS);
@@ -559,6 +608,9 @@ export async function runExecutorWorkOnce() {
       const auth = await authenticatedRemotePayload(candidate, local.deviceId, {
         capabilities: [...new Set([...local.capabilities, "shell", "fleet-chat-turn-v1"])],
         displayName: localDisplayName,
+        acceptingJobs: local.acceptingJobs,
+        availabilityReason,
+        workspaces,
       });
       const claimed = await remoteCall<{ job: Record<string, unknown> | null; leaseId?: string }>(
         candidate,
@@ -624,7 +676,11 @@ export async function runExecutorWorkOnce() {
       // the bounded Tailscale inventory without disclosing credential errors.
     }
   }
-  return { processed: false as const, reason: "no-work" };
+  return {
+    processed: false as const,
+    reason: local.acceptingJobs ? "no-work" : "executor-unavailable",
+    availability: availabilityReason,
+  };
 }
 
 async function resolveExecutorWorkspace(job: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -641,7 +697,7 @@ async function resolveExecutorWorkspace(job: Record<string, unknown>): Promise<R
   const repositoryMatches = repositoryUrl
     ? projects.filter((project) => project.repoUrl === repositoryUrl)
     : [];
-  const matches = repositoryMatches.length > 0
+  const matches = repositoryUrl
     ? repositoryMatches
     : projects.filter((project) =>
         projectName && project.name.localeCompare(projectName, undefined, { sensitivity: "base" }) === 0

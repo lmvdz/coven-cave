@@ -237,7 +237,7 @@ export function ComposerHostChoices({
     return () => window.clearTimeout(t);
   }, [armedRemoveId]);
   return (
-    <div className="cave-host-choices" role="radiogroup" aria-label="Run this chat on">
+    <div className="cave-host-choices" role="radiogroup" aria-label="Run this turn on">
       {options.map((option) => {
         const optionStatus = hostStatusKind(option);
         const checked = option.id === value;

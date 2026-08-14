@@ -92,7 +92,9 @@ async function fleetHostOptions(): Promise<ChatHostOption[]> {
       .filter((node) => node.revokedAt === null && node.capabilities?.includes("fleet-chat-turn-v1"))
       .map((node) => {
         const seenAt = Date.parse(node.lastSeenAt);
-        const online = Number.isFinite(seenAt) && now - seenAt < 15_000;
+        const online = Number.isFinite(seenAt)
+          && now - seenAt < 15_000
+          && (node.executorAvailability === "available" || node.executorAvailability == null || node.executorAvailability === "unknown");
         return {
           id: `fleet:${node.nodeId}`,
           kind: "fleet" as const,

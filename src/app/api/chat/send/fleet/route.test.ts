@@ -18,6 +18,12 @@ assert.match(route, /fleetJobEvents[\s\S]*?assistant_chunk/, "executor JSONL eve
 assert.match(route, /projectName:[\s\S]*?repositoryUrl:[\s\S]*?checkpoint/, "workspace identity and revision ride with the turn");
 assert.doesNotMatch(route, /nodeCredential|requestSecret|proof:/, "Fleet credentials never enter the browser route payload");
 assert.match(control, /authenticatedRemotePayload[\s\S]*?capabilities:[\s\S]*?fleet-chat-turn-v1/, "executor heartbeats advertise remote-turn compatibility");
+assert.match(control, /acceptingJobs: local\.acceptingJobs,[\s\S]*?availabilityReason/, "executor heartbeats distinguish stopped, draining, and unshared states before dispatch");
+assert.match(control, /executorWorkspaceInventory\(\)[\s\S]*?workspaces,/, "authenticated heartbeats advertise a bounded path-free project inventory for hub-side preflight");
+const advertisedWorkspace = control.match(/return \{\s*projectName: project\.name,[\s\S]*?\};/)?.[0] ?? "";
+assert.ok(advertisedWorkspace, "workspace advertisement has an explicit allowlisted shape");
+assert.doesNotMatch(advertisedWorkspace, /\broot\s*:/, "executor-local workspace paths never leave the executor");
+assert.match(control, /const matches = repositoryUrl[\s\S]*?\? repositoryMatches[\s\S]*?: projects\.filter/, "a supplied repository identity never falls back to an unrelated same-name project");
 assert.match(control, /activeExecutorWork[\s\S]*?forwardExecutorEvents[\s\S]*?\/fleet\/jobs\/status/, "background execution keeps streaming and cancellation polls alive beyond the native worker timeout");
 assert.match(chat, /fleetNodeIdFromHostOption\(fleetHost \?\? ""\)/);
 assert.match(chat, /fleetNodeId \? "\/api\/chat\/send\/fleet" : "\/api\/chat\/send"/, "placement changes only the selected turn's transport");
