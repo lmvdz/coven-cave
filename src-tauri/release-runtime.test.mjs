@@ -408,18 +408,30 @@ test("native updater cleanup stops the sidecar before Windows exits", async () =
   );
 });
 
-test("Windows native close remains authoritative when the WebView is unresponsive", async () => {
+// Closing the main window hides it to the tray instead of exiting: this device
+// may be a Fleet executor, and work accepted from a trusted hub must survive the
+// user closing the UI. That inverts the previous contract — where a Windows
+// title-bar close exited the process natively, with a hard deadline to bypass
+// DLL-detach deadlocks — so the assertions below pin hide-to-tray rather than
+// exit-on-close. Quitting is now an explicit tray action, which is what runs
+// owned-process cleanup.
+test("Windows native close hides the main window to the tray", async () => {
   const launcher = await readNativeHost("tauri_setup.rs", "platform_lifecycle.rs");
 
   assert.match(
     launcher,
-    /#\[cfg\(target_os = "windows"\)\][\s\S]*WindowEvent::CloseRequested[\s\S]*window\.label\(\) == "main"[\s\S]*shutdown_owned_processes\(window\.app_handle\(\)\)[\s\S]*window\.app_handle\(\)\.exit\(0\)/,
-    "the Windows title-bar close must exit natively without waiting for a wedged JS close listener",
+    /WindowEvent::CloseRequested[\s\S]*window_close_policy\(window\.label\(\)\) == WindowClosePolicy::HideToTray[\s\S]*api\.prevent_close\(\)[\s\S]*set_tray_visible\(window\.app_handle\(\), true\)[\s\S]*window\.hide\(\)/,
+    "a main-window close must be prevented, surface the tray icon, and hide the window",
   );
   assert.match(
     launcher,
-    /CreateEventW[\s\S]*cave-close-cleanup[\s\S]*cave-close-hard-deadline[\s\S]*SetWindowSubclass/,
-    "the cleanup and hard-deadline waiters must exist before the main HWND hook is installed",
+    /fn window_close_policy\(label: &str\) -> WindowClosePolicy \{[\s\S]*if label == "main" \{[\s\S]*WindowClosePolicy::HideToTray[\s\S]*\} else \{[\s\S]*WindowClosePolicy::Close/,
+    "only the main window hides; child windows keep ordinary close semantics",
+  );
+  assert.match(
+    launcher,
+    /CreateEventW[\s\S]*cave-close-to-tray[\s\S]*SetWindowSubclass/,
+    "the tray waiter must exist before the main HWND hook is installed",
   );
   assert.match(
     launcher,
@@ -428,8 +440,13 @@ test("Windows native close remains authoritative when the WebView is unresponsiv
   );
   assert.match(
     launcher,
-    /WINDOWS_MAIN_CLOSE_EXIT_DEADLINE[\s\S]*TerminateProcess\(GetCurrentProcess\(\), 0\)/,
-    "the hard close deadline must bypass ExitProcess DLL-detach deadlocks",
+    /if is_windows_main_close_message\(message, wparam\) \{[\s\S]*ShowWindow\(hwnd, SW_HIDE\)/,
+    "the HWND hook must hide the parent window itself, so a wedged WebView2 pump cannot leave a visible dead window",
+  );
+  assert.doesNotMatch(
+    launcher,
+    /TerminateProcess\(GetCurrentProcess\(\), 0\)/,
+    "closing the UI must never terminate the process — active executor work would die with it",
   );
   const callback = launcher.match(
     /unsafe extern "system" fn windows_main_close_subclass\([\s\S]*?\n\}/,
@@ -587,13 +604,23 @@ test("mobile startup remains available after native-host extraction", async () =
   assert.match(setup, /#\[cfg_attr\(mobile, tauri::mobile_entry_point\)\]\r?\npub fn run\(\)/);
 });
 
-test("Windows close watchdog helper follows extracted lifecycle tests", async () => {
+// Replaces the close-deadline watchdog-helper check. That helper existed to
+// prove a hard deadline terminated the process when the event loop wedged; with
+// hide-to-tray there is no such deadline, because closing the UI is no longer an
+// exit at all. The contract worth pinning now is which windows hide and which
+// still close.
+test("close-to-tray policy stays covered by the extracted lifecycle tests", async () => {
   const lifecycleTests = await readNativeHost("app_lifecycle_tests.rs");
 
   assert.match(
     lifecycleTests,
-    /"--exact",\s*"app_lifecycle_tests::windows_close_watchdog_helper_process"/,
-    "the close-deadline test must spawn its retained watchdog helper by its extracted module path",
+    /fn only_main_window_closes_to_tray\(\)/,
+    "the tray close policy must keep a named lifecycle test",
+  );
+  assert.match(
+    lifecycleTests,
+    /fn raw_main_close_fallback_recognizes_only_native_close_messages\(\)/,
+    "the raw HWND message filter must stay covered — it decides what the hook consumes",
   );
 });
 
