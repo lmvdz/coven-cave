@@ -1625,6 +1625,8 @@ fn run_sidecar_daemon() -> Result<i32, String> {
     }
     let port = daemon_port()?;
     let auth_token = sidecar_auth_token();
+    // Same contract as the primary start path: this is the live credential now.
+    remember_sidecar_auth_token(&auth_token);
     let mobile_access_token =
         load_or_create_mobile_access_token(&app_data_dir.join(MOBILE_ACCESS_TOKEN_FILE));
     let sidecar_output = Arc::new(Mutex::new(SidecarOutputTail::default()));

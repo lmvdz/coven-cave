@@ -90,11 +90,27 @@ fn post_work_once(target: &WorkerTarget) -> Result<(), String> {
     post_action(target, WORK_BODY)
 }
 
-pub(super) fn stop_owned_fleet_daemon(app: &tauri::AppHandle) {
-    let Some(target) = main_url_for_child_windows(app)
+/// Resolve where to reach Cave, authenticating with this process's own token.
+///
+/// The URL supplies only the loopback address and port. Its `covenCaveToken` is
+/// not a dependable credential: SidecarAuthBridge strips the parameter from the
+/// address bar right after boot, and `main_url_for_child_windows` falls back to
+/// that live (stripped) URL whenever no startup URL was memoised — which is
+/// exactly what left every poll unauthenticated, answered `401 Unauthorized` by
+/// the proxy's access gate. Prefer the credential the sidecar was started with;
+/// fall back to the URL's copy so a tokenless dev server still works.
+fn authenticated_worker_target(app: &tauri::AppHandle) -> Option<WorkerTarget> {
+    let mut target = main_url_for_child_windows(app)
         .as_ref()
-        .and_then(worker_target)
-    else {
+        .and_then(worker_target)?;
+    if let Some(token) = current_sidecar_auth_token() {
+        target.token = Some(token);
+    }
+    Some(target)
+}
+
+pub(super) fn stop_owned_fleet_daemon(app: &tauri::AppHandle) {
+    let Some(target) = authenticated_worker_target(app) else {
         return;
     };
     if let Err(error) = post_action(&target, APP_QUIT_BODY) {
@@ -110,10 +126,7 @@ pub(super) fn start_fleet_executor_worker(app: tauri::AppHandle) {
         return;
     }
     thread::spawn(move || loop {
-        if let Some(target) = main_url_for_child_windows(&app)
-            .as_ref()
-            .and_then(worker_target)
-        {
+        if let Some(target) = authenticated_worker_target(&app) {
             if let Err(error) = post_work_once(&target) {
                 log::debug!("[cave] Fleet executor poll skipped: {error}");
             }
@@ -139,6 +152,27 @@ mod tests {
         assert!(worker_target(&Url::parse("https://127.0.0.1:43123/").unwrap()).is_none());
         assert!(worker_target(&Url::parse("http://tailnet.example:43123/").unwrap()).is_none());
         assert!(worker_target(&Url::parse("http://127.0.0.1/").unwrap()).is_none());
+    }
+
+    /// The webview URL is stripped of `covenCaveToken` moments after boot, so a
+    /// poll that trusted it authenticated as nobody and the proxy answered
+    /// `401 Unauthorized` on every tick. The minted credential must win over
+    /// whatever the URL happens to still carry, including nothing at all.
+    #[test]
+    fn the_minted_credential_outranks_the_stripped_url() {
+        let stripped = Url::parse("http://127.0.0.1:43123/").unwrap();
+        assert!(
+            worker_target(&stripped).unwrap().token.is_none(),
+            "a stripped URL yields no credential — this is the 401 state"
+        );
+
+        remember_sidecar_auth_token("f00dcafe");
+        assert_eq!(current_sidecar_auth_token().as_deref(), Some("f00dcafe"));
+
+        // A later sidecar start replaces it, so a stale credential can never
+        // outlive the sidecar it authenticated.
+        remember_sidecar_auth_token("beefbeef");
+        assert_eq!(current_sidecar_auth_token().as_deref(), Some("beefbeef"));
     }
 
     #[test]

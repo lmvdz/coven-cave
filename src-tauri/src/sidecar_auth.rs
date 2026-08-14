@@ -7,6 +7,43 @@ pub(super) fn sidecar_auth_token() -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+/// The sidecar credential this process most recently launched a sidecar with.
+///
+/// In-process callers must not recover their own credential by scraping it back
+/// out of the main webview's URL. SidecarAuthBridge `replaceState`s
+/// `covenCaveToken` off the address bar immediately after capturing it, so that
+/// URL is tokenless within a tick of boot; and the startup memo that child
+/// windows rely on is only written when a main URL existed at setup, so a
+/// sidecar that becomes ready later leaves nothing to read. Anything in this
+/// process that calls the sidecar — the fleet executor worker — reads the token
+/// from here, where it is authoritative by construction.
+///
+/// Ephemeral on purpose: a fresh token is minted per sidecar start, and every
+/// start path overwrites this so a stale credential can never outlive the
+/// sidecar it authenticated.
+#[cfg(desktop)]
+static CURRENT_SIDECAR_AUTH_TOKEN: Mutex<Option<String>> = Mutex::new(None);
+
+/// Record the credential a sidecar is being started with. Call at every start
+/// path, before the sidecar can serve a request.
+#[cfg(desktop)]
+pub(super) fn remember_sidecar_auth_token(token: &str) {
+    if let Ok(mut current) = CURRENT_SIDECAR_AUTH_TOKEN.lock() {
+        *current = Some(token.to_string());
+    }
+}
+
+/// The live sidecar credential, or `None` when no sidecar was started by this
+/// process — a plain `pnpm dev` server sets no `COVEN_CAVE_AUTH_TOKEN`, and
+/// callers must stay tokenless there rather than inventing one.
+#[cfg(desktop)]
+pub(super) fn current_sidecar_auth_token() -> Option<String> {
+    CURRENT_SIDECAR_AUTH_TOKEN
+        .lock()
+        .ok()
+        .and_then(|current| current.clone())
+}
+
 #[cfg(desktop)]
 pub(super) const MOBILE_ACCESS_TOKEN_FILE: &str = "mobile-access-token";
 

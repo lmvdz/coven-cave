@@ -602,6 +602,9 @@ fn run_sidecar_runtime(
         ));
     }
     let auth_token = sidecar_auth_token();
+    // In-process callers read the credential from here rather than scraping it
+    // back out of the webview URL, which is stripped of it moments after boot.
+    remember_sidecar_auth_token(&auth_token);
     let mobile_access_token = mobile_access_token_for_app(app);
     log::info!("[cave] starting sidecar on port {port}");
 
