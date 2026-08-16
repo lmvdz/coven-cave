@@ -416,14 +416,56 @@ test("the configured delivery reaches every synthesized segment", async () => {
       }),
     },
     {
-      synthesize: async (_text, _provider, voice, _signal, delivery) => {
-        seen.push(delivery);
+      synthesize: async (_text, _provider, voice, _signal, options) => {
+        seen.push(options.delivery);
         return { bytes: wav([1, 2]), voice };
       },
     },
   );
   await definition.run(jobContext(new AbortController(), []));
   assert.deepEqual(seen, ["steady", "steady"], "one frozen delivery for the whole episode");
+});
+
+test("the render request carries the configured model and a stable per-generation seed", async () => {
+  const previousKey = process.env.ELEVENLABS_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.ELEVENLABS_API_KEY = "test-key";
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(wav([1, 2]).slice().buffer as ArrayBuffer);
+  }) as typeof globalThis.fetch;
+  const run = async (generationId: string) => {
+    const definition = createPodcastMediaJobDefinition({
+      familiarId: "nova",
+      generationId,
+      script: [{ id: "segment-1", text: "Findings" }],
+      renderConfig: renderConfig({
+        provider: "elevenlabs",
+        voice: "21m00Tcm4TlvDq8ikWAM",
+        model: "eleven_v3",
+      }),
+    });
+    await definition.run(jobContext(new AbortController(), []));
+  };
+  try {
+    await run("podcast-seed-a");
+    await run("podcast-seed-a");
+    await run("podcast-seed-b");
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = previousKey;
+  }
+  assert.equal(bodies.length, 3);
+  // The podcast model is the configured one, not the live-voice default.
+  for (const body of bodies) assert.equal(body.model_id, "eleven_v3");
+  // Same generation renders with the same seed; a different one does not.
+  // Without this, no two renders are comparable and every before/after
+  // measurement is confounded by provider run variance.
+  assert.equal(typeof bodies[0].seed, "number");
+  assert.equal(bodies[0].seed, bodies[1].seed);
+  assert.notEqual(bodies[0].seed, bodies[2].seed);
 });
 
 test("the ElevenLabs request carries explicit voice settings for its delivery", async () => {
@@ -445,7 +487,7 @@ test("the ElevenLabs request carries explicit voice settings for its delivery", 
         "elevenlabs",
         "21m00Tcm4TlvDq8ikWAM",
         AbortSignal.timeout(5_000),
-        delivery,
+        { delivery },
       );
     }
     // An omitted delivery must still send settings — the default is explicit.

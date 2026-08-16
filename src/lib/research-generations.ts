@@ -122,6 +122,35 @@ export const RESEARCH_PODCAST_STYLES = [
 export type ResearchPodcastStyle = (typeof RESEARCH_PODCAST_STYLES)[number];
 
 /**
+ * Provider models a Research podcast may render with.
+ *
+ * A live voice call is latency-bound, which is what the shared
+ * DEFAULT_ELEVENLABS_MODEL_ID is chosen for. A podcast render is a queued,
+ * character-capped, offline job where latency buys nothing, so the two should
+ * not share one constant. The podcast default stays on that shared value
+ * regardless: changing what an existing stored config renders as is not this
+ * change's job.
+ *
+ * Declared as a literal here rather than imported from the provider module,
+ * because this file is the shared client/server contract and stays free of
+ * provider imports; elevenlabs-shared.test.ts pins the two lists together so a
+ * model cannot drift out of this allowlist unnoticed.
+ */
+export const RESEARCH_PODCAST_MODEL_IDS = [
+  "eleven_turbo_v2_5",
+  "eleven_multilingual_v2",
+  "eleven_v3",
+] as const;
+
+export type ResearchPodcastModelId = (typeof RESEARCH_PODCAST_MODEL_IDS)[number];
+
+export function isResearchPodcastModelId(
+  value: unknown,
+): value is ResearchPodcastModelId {
+  return RESEARCH_PODCAST_MODEL_IDS.includes(value as ResearchPodcastModelId);
+}
+
+/**
  * How a rendered voice should carry the findings. Named deliveries rather than
  * raw provider numbers: the knobs a TTS vendor exposes (stability, similarity,
  * style exaggeration) are provider-specific and meaningless in a research
@@ -164,6 +193,11 @@ export type ResearchMediaRenderConfig = {
    * stored configs written before this existed render exactly as they did.
    */
   delivery?: ResearchVoiceDelivery;
+  /**
+   * Podcast only: the provider model to render with. Absent keeps the shared
+   * default, so a stored config renders exactly as it did before this existed.
+   */
+  model?: ResearchPodcastModelId;
 };
 
 export type ResearchGenerationProgress = {
@@ -270,6 +304,19 @@ export function validateResearchMediaRenderConfig(
     }
     delivery = value.delivery;
   }
+  let model: ResearchPodcastModelId | undefined;
+  if (value.model !== undefined) {
+    if (kind !== "podcast") {
+      return { ok: false, error: "render model is only valid for podcasts" };
+    }
+    if (!isResearchPodcastModelId(value.model)) {
+      return {
+        ok: false,
+        error: `render model must be one of ${RESEARCH_PODCAST_MODEL_IDS.join(", ")}`,
+      };
+    }
+    model = value.model;
+  }
   return {
     ok: true,
     value: {
@@ -279,6 +326,7 @@ export function validateResearchMediaRenderConfig(
       ...(voices ? { voices } : {}),
       ...(style ? { style } : {}),
       ...(delivery ? { delivery } : {}),
+      ...(model ? { model } : {}),
     },
   };
 }

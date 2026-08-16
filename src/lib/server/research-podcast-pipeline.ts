@@ -3,6 +3,7 @@ import {
   type ResearchGenerationScriptSegment,
   type ResearchGenerationContent,
   type ResearchMediaRenderConfig,
+  type ResearchPodcastModelId,
   type ResearchVoiceDelivery,
 } from "../research-generations.ts";
 import {
@@ -22,6 +23,7 @@ import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   elevenLabsVoiceSettings,
   isValidElevenLabsVoiceId,
+  researchRenderSeed,
 } from "../voice/elevenlabs-shared.ts";
 import {
   RESEARCH_AUDIO_MAX_BYTES,
@@ -288,7 +290,7 @@ async function synthesizeElevenLabs(
   text: string,
   requestedVoice: string | undefined,
   signal: AbortSignal,
-  delivery?: ResearchVoiceDelivery,
+  options: PodcastSynthesisOptions = {},
 ): Promise<{ bytes: Uint8Array; voice: string }> {
   const apiKey = resolveSecret("ELEVENLABS_API_KEY");
   if (!apiKey) throw new Error("Set ELEVENLABS_API_KEY in Vault settings.");
@@ -305,8 +307,11 @@ async function synthesizeElevenLabs(
       headers: { "xi-api-key": apiKey, "content-type": "application/json" },
       body: JSON.stringify({
         text,
-        model_id: DEFAULT_ELEVENLABS_MODEL_ID,
-        voice_settings: elevenLabsVoiceSettings(delivery),
+        model_id: options.model ?? DEFAULT_ELEVENLABS_MODEL_ID,
+        voice_settings: elevenLabsVoiceSettings(options.delivery),
+        // A seed pins the render's timing, so re-rendering a generation
+        // reproduces its own pacing instead of drifting run to run.
+        ...(options.seed === undefined ? {} : { seed: options.seed }),
       }),
       signal: requestSignal,
     },
@@ -316,18 +321,28 @@ async function synthesizeElevenLabs(
   return { bytes: pcmToWav(pcm), voice };
 }
 
+/**
+ * Provider-side render controls. Grouped rather than passed positionally: the
+ * local engines expose no equivalent for any of them and simply ignore the
+ * whole object.
+ */
+export type PodcastSynthesisOptions = {
+  delivery?: ResearchVoiceDelivery;
+  model?: ResearchPodcastModelId;
+  seed?: number;
+};
+
 /** Shared TTS seam for podcast audio and short-video voiceover. */
 export async function synthesizeResearchPodcastSegment(
   text: string,
   provider: "local" | "elevenlabs",
   voice: string | undefined,
   signal: AbortSignal,
-  /** Ignored by the local engines, which expose no equivalent controls. */
-  delivery?: ResearchVoiceDelivery,
+  options: PodcastSynthesisOptions = {},
 ): Promise<{ bytes: Uint8Array; voice: string }> {
   return provider === "local"
     ? synthesizeLocal(text, voice, signal)
-    : synthesizeElevenLabs(text, voice, signal, delivery);
+    : synthesizeElevenLabs(text, voice, signal, options);
 }
 
 export type PodcastMediaJobInput = {
@@ -343,7 +358,7 @@ export type PodcastPipelineDependencies = {
     provider: ResearchMediaRenderConfig["provider"],
     voice: string,
     signal: AbortSignal,
-    delivery?: ResearchVoiceDelivery,
+    options: PodcastSynthesisOptions,
   ) => Promise<{ bytes: Uint8Array; voice: string }>;
 };
 
@@ -351,7 +366,11 @@ export function createPodcastMediaJobDefinition(
   input: PodcastMediaJobInput,
   dependencies: PodcastPipelineDependencies = {},
 ): ResearchMediaJobDefinition {
-  const { provider, voice, voices, length, delivery } = input.renderConfig;
+  const { provider, voice, voices, length, delivery, model } = input.renderConfig;
+  // Derived from the generation id rather than configured: the point is that
+  // one generation always re-renders to the same pacing, not that a user picks
+  // a number.
+  const seed = researchRenderSeed(input.generationId);
   const synthesize =
     dependencies.synthesize ?? synthesizeResearchPodcastSegment;
   const voiceForSegment = (segment: ResearchGenerationScriptSegment): string =>
@@ -407,7 +426,7 @@ export function createPodcastMediaJobDefinition(
               provider,
               segmentVoice,
               context.signal,
-              delivery,
+              { delivery, model, seed },
             );
             if (synthesized.voice !== segmentVoice) {
               throw new Error(
