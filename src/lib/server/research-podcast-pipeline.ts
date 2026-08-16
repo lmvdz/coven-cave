@@ -312,6 +312,8 @@ async function synthesizeElevenLabs(
         // A seed pins the render's timing, so re-rendering a generation
         // reproduces its own pacing instead of drifting run to run.
         ...(options.seed === undefined ? {} : { seed: options.seed }),
+        ...(options.previousText ? { previous_text: options.previousText } : {}),
+        ...(options.nextText ? { next_text: options.nextText } : {}),
       }),
       signal: requestSignal,
     },
@@ -330,6 +332,15 @@ export type PodcastSynthesisOptions = {
   delivery?: ResearchVoiceDelivery;
   model?: ResearchPodcastModelId;
   seed?: number;
+  /**
+   * The neighbouring segments' text, so the model can carry a contour across a
+   * turn boundary instead of restarting cold on every request. Each segment is
+   * its own synthesis call, so without these the provider cannot know that a
+   * sentence continues a thought or that a question is about to be answered.
+   * Not spoken — context only.
+   */
+  previousText?: string;
+  nextText?: string;
 };
 
 /** Shared TTS seam for podcast audio and short-video voiceover. */
@@ -426,7 +437,17 @@ export function createPodcastMediaJobDefinition(
               provider,
               segmentVoice,
               context.signal,
-              { delivery, model, seed },
+              {
+                delivery,
+                model,
+                seed,
+                ...(input.script[index - 1]
+                  ? { previousText: input.script[index - 1].text }
+                  : {}),
+                ...(input.script[index + 1]
+                  ? { nextText: input.script[index + 1].text }
+                  : {}),
+              },
             );
             if (synthesized.voice !== segmentVoice) {
               throw new Error(

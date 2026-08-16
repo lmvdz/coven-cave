@@ -426,6 +426,51 @@ test("the configured delivery reaches every synthesized segment", async () => {
   assert.deepEqual(seen, ["steady", "steady"], "one frozen delivery for the whole episode");
 });
 
+test("each segment is rendered with its neighbours as context", async () => {
+  const previousKey = process.env.ELEVENLABS_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.ELEVENLABS_API_KEY = "test-key";
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(wav([1, 2]).slice().buffer as ArrayBuffer);
+  }) as typeof globalThis.fetch;
+  try {
+    const definition = createPodcastMediaJobDefinition({
+      familiarId: "nova",
+      generationId: "podcast-context",
+      script: [
+        { id: "segment-1", text: "First." },
+        { id: "segment-2", text: "Second." },
+        { id: "segment-3", text: "Third." },
+      ],
+      renderConfig: renderConfig({
+        provider: "elevenlabs",
+        voice: "21m00Tcm4TlvDq8ikWAM",
+      }),
+    });
+    await definition.run(jobContext(new AbortController(), []));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = previousKey;
+  }
+  assert.equal(bodies.length, 3);
+  // The episode's edges have no neighbour to carry a contour from or into, so
+  // the field is absent rather than empty — the provider treats "" as context.
+  assert.equal(bodies[0].previous_text, undefined);
+  assert.equal(bodies[0].next_text, "Second.");
+  assert.equal(bodies[1].previous_text, "First.");
+  assert.equal(bodies[1].next_text, "Third.");
+  assert.equal(bodies[2].previous_text, "Second.");
+  assert.equal(bodies[2].next_text, undefined);
+  // Context is never spoken: the segment's own text is what gets synthesized.
+  assert.deepEqual(
+    bodies.map((body) => body.text),
+    ["First.", "Second.", "Third."],
+  );
+});
+
 test("the render request carries the configured model and a stable per-generation seed", async () => {
   const previousKey = process.env.ELEVENLABS_API_KEY;
   const previousFetch = globalThis.fetch;
