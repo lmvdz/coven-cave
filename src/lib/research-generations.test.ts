@@ -13,6 +13,7 @@ import {
   RESEARCH_GENERATION_STAGES,
   RESEARCH_GENERATION_STATUSES,
   validateCreateResearchGenerationInput,
+  RESEARCH_PODCAST_MODEL_IDS,
   RESEARCH_VOICE_DELIVERIES,
   validateResearchMediaRenderConfig,
 } from "./research-generations.ts";
@@ -117,6 +118,47 @@ test("media render configuration is kind-aware, trimmed, and bounded", () => {
       provider: "local",
       voice: "x".repeat(129),
       length: "brief",
+    }).ok,
+    false,
+  );
+});
+
+test("podcast render model is podcast-only, allowlisted, and optional", () => {
+  for (const model of RESEARCH_PODCAST_MODEL_IDS) {
+    const result = validateResearchMediaRenderConfig("podcast", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "standard",
+      model,
+    });
+    assert.equal(result.ok, true, `${model} is allowlisted`);
+    if (result.ok) assert.equal(result.value.model, model);
+  }
+  // Absent keeps the shared default, so stored configs render as they did.
+  const bare = validateResearchMediaRenderConfig("podcast", {
+    provider: "elevenlabs",
+    voice: "21m00Tcm4TlvDq8ikWAM",
+    length: "standard",
+  });
+  assert.equal(bare.ok, true);
+  if (bare.ok) assert.equal(bare.value.model, undefined);
+  // A model the provider offers but Cave has not vetted for podcasts is
+  // refused: the allowlist is the contract, not the provider's catalog.
+  assert.equal(
+    validateResearchMediaRenderConfig("podcast", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "standard",
+      model: "eleven_flash_v2",
+    }).ok,
+    false,
+  );
+  assert.equal(
+    validateResearchMediaRenderConfig("long-video", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "brief",
+      model: "eleven_v3",
     }).ok,
     false,
   );

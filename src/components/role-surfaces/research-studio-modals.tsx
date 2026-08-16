@@ -48,6 +48,7 @@ import {
   type ResearchMediaLength,
   type ResearchMediaProvider,
   type ResearchPodcastStyle,
+  type ResearchPodcastModelId,
   type ResearchVoiceDelivery,
 } from "@/lib/research-generations";
 import type { ResearchMission } from "@/lib/research-missions";
@@ -520,6 +521,12 @@ export function GenerationReviewModal({
                 <dd>{generation.renderConfig.delivery}</dd>
               </div>
             ) : null}
+            {generation.renderConfig.model ? (
+              <div>
+                <dt>Voice model</dt>
+                <dd>{generation.renderConfig.model}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>Length</dt>
               <dd>{generation.renderConfig.length}</dd>
@@ -579,6 +586,8 @@ export function GenerationConfigModal({
   onMediaStyleChange,
   mediaDelivery,
   onMediaDeliveryChange,
+  mediaModel,
+  onMediaModelChange,
   mediaLength,
   onMediaLengthChange,
   error,
@@ -606,6 +615,9 @@ export function GenerationConfigModal({
   /** Podcast-only voice delivery; ignored for video kinds. */
   mediaDelivery: ResearchVoiceDelivery;
   onMediaDeliveryChange: (delivery: ResearchVoiceDelivery) => void;
+  /** Podcast-only provider model; ignored for video kinds. */
+  mediaModel: ResearchPodcastModelId;
+  onMediaModelChange: (model: ResearchPodcastModelId) => void;
   mediaLength: ResearchMediaLength;
   onMediaLengthChange: (length: ResearchMediaLength) => void;
   /** Server-side create failure — e.g. the 409 "no markdown artifact" message. */
@@ -906,6 +918,40 @@ export function GenerationConfigModal({
                     : mediaDelivery === "expressive"
                       ? "Moves more across the read — suits narrative findings."
                       : "Balanced read. Recorded with the render, so it repeats exactly."}
+                </span>
+              </div>
+            ) : null}
+
+            {kind === "podcast" && mediaProvider === "elevenlabs" ? (
+              <div className="research-studio-config__field">
+                <label
+                  className="research-studio-config__label"
+                  htmlFor="research-studio-config-model"
+                >
+                  Voice model
+                </label>
+                <select
+                  id="research-studio-config-model"
+                  className="research-studio__select focus-ring"
+                  value={mediaModel}
+                  aria-describedby="research-studio-config-model-help"
+                  onChange={(event) =>
+                    onMediaModelChange(event.target.value as ResearchPodcastModelId)
+                  }
+                >
+                  <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+                  <option value="eleven_multilingual_v2">Multilingual v2</option>
+                  <option value="eleven_v3">v3</option>
+                </select>
+                <span
+                  id="research-studio-config-model-help"
+                  className="research-studio-config__hint"
+                >
+                  {mediaModel === "eleven_turbo_v2_5"
+                    ? "Fastest. Tuned for live conversation, where latency matters."
+                    : mediaModel === "eleven_multilingual_v2"
+                      ? "Slower and steadier than Turbo across long reads."
+                      : "Most expressive. A podcast render is offline, so latency costs nothing here."}
                 </span>
               </div>
             ) : null}

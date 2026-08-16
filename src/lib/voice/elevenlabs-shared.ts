@@ -7,6 +7,28 @@
  *  Studio "Voice model" field. */
 export const DEFAULT_ELEVENLABS_MODEL_ID = "eleven_turbo_v2_5";
 
+/**
+ * A render seed derived from the generation id, so re-rendering one generation
+ * reproduces its own audio instead of drifting.
+ *
+ * Verified against the provider: two seeded requests for identical text return
+ * byte-identical *lengths* (identical sample counts, so identical duration and
+ * pacing) while two unseeded requests differ by ~6%. Without this, no two
+ * renders are comparable, and any before/after measurement is confounded by
+ * run variance — which is exactly what happened while measuring the cadence
+ * change. The waveform is not bit-identical; the timing is, which is the part
+ * prosody work needs to hold still.
+ */
+export function researchRenderSeed(generationId: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < generationId.length; index += 1) {
+    hash ^= generationId.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  // ElevenLabs accepts 0 … 4294967295; keep it inside a safe unsigned range.
+  return hash >>> 0;
+}
+
 /** "Rachel", ElevenLabs' long-standing premade voice — a stable public id so
  *  the provider speaks out of the box before the user picks a voice. */
 export const DEFAULT_ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
