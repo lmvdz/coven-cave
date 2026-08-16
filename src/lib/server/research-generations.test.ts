@@ -904,6 +904,72 @@ test("podcast interview shapes its own turns — capped guest answers, host reac
   );
 });
 
+// The 2026-08-16 baseline render emitted a single 58-word `breakdown` turn
+// carrying three sentences — one synthesis request long enough for the neural
+// prosody model to declinate with nothing cueing a pitch reset. Only
+// `interview` capped its turns (cave-9wkyq), so breakdown, debate and recap all
+// monologued. Cadence is a property of the drafter now, not of one style.
+const EXECUTIVE_SUMMARY = [
+  "Diagram Design is a strong candidate when the goal is a sparse, branded, publication-ready diagram generated through an AI coding agent.",
+  "Its 27-type design system, strict complexity budgets, HTML/SVG output, import paths, accessibility structure, and cross-platform checks are documented in the repository.",
+  "It is not the default choice for dense graphs, deterministic docs-as-code rendering, or collaborative GUI editing.",
+];
+
+const cadenceSource = {
+  mission,
+  artifact: { key: "findings", title: "Findings — diagram tooling" },
+  markdown: [
+    "# Primary deliverable",
+    "",
+    "## Executive summary",
+    "",
+    `- ${EXECUTIVE_SUMMARY.join(" ")}`,
+  ].join("\n"),
+};
+
+test("narration turns respect the breath-unit cap across every podcast style", () => {
+  for (const style of ["breakdown", "debate", "recap"] as const) {
+    const content = draftPodcastContent(cadenceSource, "standard", style);
+    assert.equal(content.kind, "podcast");
+    if (content.kind !== "podcast") return;
+    // Templated host framing and closers are authored structure, not extracted
+    // narration, so the cap is asserted against the findings turns only.
+    const narration =
+      style === "recap"
+        ? content.script
+        : content.script.filter((segment) => segment.speaker === "guest");
+    assert.ok(narration.length > 1, `${style}: the long unit split into several turns`);
+    for (const turn of narration) {
+      const sentences = turn.text.split(/(?<=[.!?…]["'”’)\]]*)\s+/).filter(Boolean);
+      const words = turn.text.split(/\s+/).length;
+      // A single sentence over the cap still stays whole (cave-2emgc): a turn
+      // never opens or closes mid-sentence, so the cap only ever decides how
+      // many whole sentences share one turn.
+      assert.ok(
+        words <= 24 || sentences.length === 1,
+        `${style}: ${words}-word turn holds ${sentences.length} sentences`,
+      );
+    }
+  }
+});
+
+test("splitting a narration turn preserves the source text verbatim", () => {
+  const content = draftPodcastContent(cadenceSource, "standard", "breakdown");
+  assert.equal(content.kind, "podcast");
+  if (content.kind !== "podcast") return;
+  const narration = content.script
+    .filter((segment) => segment.speaker === "guest")
+    .map((segment) => segment.text);
+  assert.equal(
+    narration.length,
+    EXECUTIVE_SUMMARY.length,
+    "each source sentence became its own turn",
+  );
+  // The whole point of a deterministic cadence pass: rejoining the turns must
+  // reproduce the artifact's wording exactly. No word added, dropped, or moved.
+  assert.equal(narration.join(" "), EXECUTIVE_SUMMARY.join(" "));
+});
+
 test("podcast drafter joins are punctuation-aware — never a double period", () => {
   const content = draftPodcastContent({
     mission,
