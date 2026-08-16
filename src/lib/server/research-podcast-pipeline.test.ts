@@ -18,6 +18,7 @@ const {
   concatPcmWav,
   createPodcastMediaJobDefinition,
   readBoundedElevenLabsAudio,
+  synthesizeResearchPodcastSegment,
   trimPcmWavSilence,
 } = await import("./research-podcast-pipeline.ts");
 const {
@@ -396,6 +397,85 @@ test("ElevenLabs response streaming stops at the audio byte cap", async () => {
     () => readBoundedElevenLabsAudio(streamedTooLarge, 4),
     /size limit/,
   );
+});
+
+test("the configured delivery reaches every synthesized segment", async () => {
+  const seen: (string | undefined)[] = [];
+  const definition = createPodcastMediaJobDefinition(
+    {
+      familiarId: "nova",
+      generationId: "podcast-delivery",
+      script: [
+        { id: "segment-1", text: "Opening", speaker: "host" },
+        { id: "segment-2", text: "Findings", speaker: "guest" },
+      ],
+      renderConfig: renderConfig({
+        provider: "elevenlabs",
+        voice: "21m00Tcm4TlvDq8ikWAM",
+        delivery: "steady",
+      }),
+    },
+    {
+      synthesize: async (_text, _provider, voice, _signal, delivery) => {
+        seen.push(delivery);
+        return { bytes: wav([1, 2]), voice };
+      },
+    },
+  );
+  await definition.run(jobContext(new AbortController(), []));
+  assert.deepEqual(seen, ["steady", "steady"], "one frozen delivery for the whole episode");
+});
+
+test("the ElevenLabs request carries explicit voice settings for its delivery", async () => {
+  // Sending no voice_settings leaves each render on whatever default the voice
+  // was saved with — not recorded in the generation and not reproducible, so
+  // the same config could render differently after a dashboard edit.
+  const previousKey = process.env.ELEVENLABS_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.ELEVENLABS_API_KEY = "test-key";
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(wav([1, 2]).slice().buffer as ArrayBuffer);
+  }) as typeof globalThis.fetch;
+  try {
+    for (const delivery of ["natural", "steady", "expressive"] as const) {
+      await synthesizeResearchPodcastSegment(
+        "Findings",
+        "elevenlabs",
+        "21m00Tcm4TlvDq8ikWAM",
+        AbortSignal.timeout(5_000),
+        delivery,
+      );
+    }
+    // An omitted delivery must still send settings — the default is explicit.
+    await synthesizeResearchPodcastSegment(
+      "Findings",
+      "elevenlabs",
+      "21m00Tcm4TlvDq8ikWAM",
+      AbortSignal.timeout(5_000),
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = previousKey;
+  }
+  assert.equal(bodies.length, 4);
+  for (const body of bodies) {
+    const settings = body.voice_settings as Record<string, unknown> | undefined;
+    assert.ok(settings, "every request carries voice_settings");
+    assert.equal(typeof settings.stability, "number");
+    assert.equal(typeof settings.similarity_boost, "number");
+  }
+  const [natural, steady, expressive, omitted] = bodies.map(
+    (body) => body.voice_settings as { stability: number; style: number },
+  );
+  // The names have to mean something acoustically distinct, or the control is
+  // decoration: steadier than natural, expressive looser and exaggerated.
+  assert.ok(steady.stability > natural.stability, "steady holds a more even register");
+  assert.ok(expressive.stability < natural.stability, "expressive moves more");
+  assert.ok(expressive.style > natural.style, "expressive exaggerates the source voice");
+  assert.deepEqual(omitted, natural, "an omitted delivery renders as natural");
 });
 
 test("stored bytes equal the single assembled WAV", async () => {

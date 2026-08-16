@@ -121,6 +121,23 @@ export const RESEARCH_PODCAST_STYLES = [
 ] as const;
 export type ResearchPodcastStyle = (typeof RESEARCH_PODCAST_STYLES)[number];
 
+/**
+ * How a rendered voice should carry the findings. Named deliveries rather than
+ * raw provider numbers: the knobs a TTS vendor exposes (stability, similarity,
+ * style exaggeration) are provider-specific and meaningless in a research
+ * configuration dialog, while their useful combinations are few. Each name
+ * resolves to concrete provider settings at render time, so a stored config
+ * stays readable and survives a provider changing its parameter set.
+ */
+export const RESEARCH_VOICE_DELIVERIES = ["natural", "steady", "expressive"] as const;
+export type ResearchVoiceDelivery = (typeof RESEARCH_VOICE_DELIVERIES)[number];
+
+export function isResearchVoiceDelivery(
+  value: unknown,
+): value is ResearchVoiceDelivery {
+  return RESEARCH_VOICE_DELIVERIES.includes(value as ResearchVoiceDelivery);
+}
+
 export function isResearchPodcastStyle(
   value: unknown,
 ): value is ResearchPodcastStyle {
@@ -142,6 +159,11 @@ export type ResearchMediaRenderConfig = {
    * configs keep validating and re-draft exactly as the default style.
    */
   style?: ResearchPodcastStyle;
+  /**
+   * Podcast only: how the voice carries the read. Absent means "natural", so
+   * stored configs written before this existed render exactly as they did.
+   */
+  delivery?: ResearchVoiceDelivery;
 };
 
 export type ResearchGenerationProgress = {
@@ -235,6 +257,19 @@ export function validateResearchMediaRenderConfig(
     }
     style = value.style;
   }
+  let delivery: ResearchVoiceDelivery | undefined;
+  if (value.delivery !== undefined) {
+    if (kind !== "podcast") {
+      return { ok: false, error: "voice delivery is only valid for podcasts" };
+    }
+    if (!isResearchVoiceDelivery(value.delivery)) {
+      return {
+        ok: false,
+        error: "voice delivery must be natural, steady, or expressive",
+      };
+    }
+    delivery = value.delivery;
+  }
   return {
     ok: true,
     value: {
@@ -243,6 +278,7 @@ export function validateResearchMediaRenderConfig(
       length: value.length,
       ...(voices ? { voices } : {}),
       ...(style ? { style } : {}),
+      ...(delivery ? { delivery } : {}),
     },
   };
 }

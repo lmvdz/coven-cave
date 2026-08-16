@@ -48,6 +48,7 @@ import {
   type ResearchMediaLength,
   type ResearchMediaProvider,
   type ResearchPodcastStyle,
+  type ResearchVoiceDelivery,
 } from "@/lib/research-generations";
 import type { ResearchMission } from "@/lib/research-missions";
 import { useFocusTrap } from "@/lib/use-focus-trap";
@@ -513,6 +514,12 @@ export function GenerationReviewModal({
                 <dd>{generation.renderConfig.style}</dd>
               </div>
             ) : null}
+            {generation.renderConfig.delivery ? (
+              <div>
+                <dt>Delivery</dt>
+                <dd>{generation.renderConfig.delivery}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>Length</dt>
               <dd>{generation.renderConfig.length}</dd>
@@ -570,6 +577,8 @@ export function GenerationConfigModal({
   onMediaGuestVoiceChange,
   mediaStyle,
   onMediaStyleChange,
+  mediaDelivery,
+  onMediaDeliveryChange,
   mediaLength,
   onMediaLengthChange,
   error,
@@ -594,6 +603,9 @@ export function GenerationConfigModal({
   /** Podcast-only drafting style; ignored for video kinds. */
   mediaStyle: ResearchPodcastStyle;
   onMediaStyleChange: (style: ResearchPodcastStyle) => void;
+  /** Podcast-only voice delivery; ignored for video kinds. */
+  mediaDelivery: ResearchVoiceDelivery;
+  onMediaDeliveryChange: (delivery: ResearchVoiceDelivery) => void;
   mediaLength: ResearchMediaLength;
   onMediaLengthChange: (length: ResearchMediaLength) => void;
   /** Server-side create failure — e.g. the 409 "no markdown artifact" message. */
@@ -860,6 +872,40 @@ export function GenerationConfigModal({
                       : mediaStyle === "interview"
                         ? "The host asks; the guest answers with the findings."
                         : "One narrator reads the findings straight through."}
+                </span>
+              </div>
+            ) : null}
+
+            {kind === "podcast" && mediaProvider === "elevenlabs" ? (
+              <div className="research-studio-config__field">
+                <label
+                  className="research-studio-config__label"
+                  htmlFor="research-studio-config-delivery"
+                >
+                  Delivery
+                </label>
+                <select
+                  id="research-studio-config-delivery"
+                  className="research-studio__select focus-ring"
+                  value={mediaDelivery}
+                  aria-describedby="research-studio-config-delivery-help"
+                  onChange={(event) =>
+                    onMediaDeliveryChange(event.target.value as ResearchVoiceDelivery)
+                  }
+                >
+                  <option value="natural">Natural</option>
+                  <option value="steady">Steady</option>
+                  <option value="expressive">Expressive</option>
+                </select>
+                <span
+                  id="research-studio-config-delivery-help"
+                  className="research-studio-config__hint"
+                >
+                  {mediaDelivery === "steady"
+                    ? "Holds an even register — suits dense, technical findings."
+                    : mediaDelivery === "expressive"
+                      ? "Moves more across the read — suits narrative findings."
+                      : "Balanced read. Recorded with the render, so it repeats exactly."}
                 </span>
               </div>
             ) : null}
