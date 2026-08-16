@@ -23,6 +23,7 @@ import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   elevenLabsVoiceSettings,
   isValidElevenLabsVoiceId,
+  modelSupportsSegmentContext,
   researchRenderSeed,
 } from "../voice/elevenlabs-shared.ts";
 import {
@@ -295,6 +296,7 @@ async function synthesizeElevenLabs(
   const apiKey = resolveSecret("ELEVENLABS_API_KEY");
   if (!apiKey) throw new Error("Set ELEVENLABS_API_KEY in Vault settings.");
   const voice = requestedVoice ?? DEFAULT_ELEVENLABS_VOICE_ID;
+  const carriesContext = modelSupportsSegmentContext(options.model);
   if (!isValidElevenLabsVoiceId(voice)) throw new Error("invalid ElevenLabs voice id");
   const requestSignal = AbortSignal.any([
     signal,
@@ -312,8 +314,10 @@ async function synthesizeElevenLabs(
         // A seed pins the render's timing, so re-rendering a generation
         // reproduces its own pacing instead of drifting run to run.
         ...(options.seed === undefined ? {} : { seed: options.seed }),
-        ...(options.previousText ? { previous_text: options.previousText } : {}),
-        ...(options.nextText ? { next_text: options.nextText } : {}),
+        ...(carriesContext && options.previousText
+          ? { previous_text: options.previousText }
+          : {}),
+        ...(carriesContext && options.nextText ? { next_text: options.nextText } : {}),
       }),
       signal: requestSignal,
     },

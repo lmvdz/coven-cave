@@ -8,6 +8,23 @@
 export const DEFAULT_ELEVENLABS_MODEL_ID = "eleven_turbo_v2_5";
 
 /**
+ * Whether a model accepts `previous_text` / `next_text`.
+ *
+ * `eleven_v3` refuses them outright — the provider answers 400 with
+ * `unsupported_model`: "Providing previous_text or next_text is not yet
+ * supported with the 'eleven_v3' model." Sending them anyway fails every
+ * segment of every render, so the caller drops them rather than letting a
+ * model choice become an outage.
+ *
+ * The cost is real and worth stating: cross-segment context is the single
+ * largest declination win measured in this campaign (94% of the slope), so a
+ * v3 render trades that away for v3's expressiveness.
+ */
+export function modelSupportsSegmentContext(model: string | undefined): boolean {
+  return model !== "eleven_v3";
+}
+
+/**
  * A render seed derived from the generation id, so re-rendering one generation
  * reproduces its own audio instead of drifting.
  *

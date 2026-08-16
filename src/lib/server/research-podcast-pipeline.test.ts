@@ -426,6 +426,50 @@ test("the configured delivery reaches every synthesized segment", async () => {
   assert.deepEqual(seen, ["steady", "steady"], "one frozen delivery for the whole episode");
 });
 
+test("a model that rejects segment context does not receive it", async () => {
+  // eleven_v3 answers 400 `unsupported_model` when previous_text or next_text
+  // is present. Sending them anyway fails every segment of every render, so a
+  // model choice must never become an outage.
+  const previousKey = process.env.ELEVENLABS_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.ELEVENLABS_API_KEY = "test-key";
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(wav([1, 2]).slice().buffer as ArrayBuffer);
+  }) as typeof globalThis.fetch;
+  try {
+    for (const model of ["eleven_turbo_v2_5", "eleven_v3"] as const) {
+      const definition = createPodcastMediaJobDefinition({
+        familiarId: "nova",
+        generationId: `podcast-context-${model}`,
+        script: [
+          { id: "segment-1", text: "First." },
+          { id: "segment-2", text: "Second." },
+        ],
+        renderConfig: renderConfig({
+          provider: "elevenlabs",
+          voice: "21m00Tcm4TlvDq8ikWAM",
+          model,
+        }),
+      });
+      await definition.run(jobContext(new AbortController(), []));
+    }
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = previousKey;
+  }
+  const [turboFirst, turboSecond, v3First, v3Second] = bodies;
+  assert.equal(turboFirst.next_text, "Second.", "turbo still carries context");
+  assert.equal(turboSecond.previous_text, "First.");
+  assert.equal(v3First.next_text, undefined, "v3 receives no next_text");
+  assert.equal(v3Second.previous_text, undefined, "v3 receives no previous_text");
+  // Everything else about the request is unchanged.
+  assert.equal(v3First.model_id, "eleven_v3");
+  assert.equal(typeof v3First.seed, "number");
+});
+
 test("each segment is rendered with its neighbours as context", async () => {
   const previousKey = process.env.ELEVENLABS_API_KEY;
   const previousFetch = globalThis.fetch;

@@ -927,6 +927,92 @@ const cadenceSource = {
   ].join("\n"),
 };
 
+test("an opted-in rewrite reaches the draft, and a rejected one is not claimed", async () => {
+  // The hard constraint: a record at status `draft` must show what will be
+  // spoken. The rewrite is therefore awaited before the record is persisted,
+  // and a rewrite the fidelity fence rejects is not described as having run.
+  const source = {
+    familiarId: "nova",
+    kind: "podcast" as const,
+    sourceMissionId: mission.id,
+    renderConfig: {
+      provider: "elevenlabs" as const,
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "standard" as const,
+      style: "recap" as const,
+      rewrite: "spoken" as const,
+    },
+  };
+
+  const applied = await createResearchMediaGenerationFromMission({
+    ...source,
+    rewriteRunner: async ({ prompt }) => {
+      // The rewrite sees extracted narration only, never the raw artifact.
+      assert.ok(!prompt.includes("# "), "no markdown headings reach the rewrite");
+      // A faithful rewrite keeps every source token; it only changes how the
+      // text sounds. Prefixing preserves fidelity while staying detectable.
+      const sources = prompt
+        .split("<<unit ")
+        .slice(1)
+        .map((block) => block.slice(block.indexOf(">>") + 2).trim());
+      return JSON.stringify({
+        units: sources.map((text, index) => ({ index, text: `So, here it is. ${text}` })),
+      });
+    },
+  });
+  assert.equal(applied.ok, true);
+  if (!applied.ok) return;
+  assert.equal(applied.generation.renderConfig?.rewrite, "spoken");
+  assert.equal(applied.generation.content?.kind, "podcast");
+  if (applied.generation.content?.kind !== "podcast") return;
+  assert.ok(
+    applied.generation.content.script.some((segment) =>
+      segment.text.includes("So, here it is."),
+    ),
+    "the persisted draft carries the rewritten text",
+  );
+
+  const rejected = await createResearchMediaGenerationFromMission({
+    ...source,
+    // Returns fluent prose that drops the source's numbers — the fence rejects it.
+    rewriteRunner: async ({ prompt }) => {
+      const count = [...prompt.matchAll(/<<unit \d+>>/g)].length;
+      return JSON.stringify({
+        units: Array.from({ length: count }, (_, index) => ({
+          index,
+          text: "So here is the thing about all of it.",
+        })),
+      });
+    },
+  });
+  assert.equal(rejected.ok, true);
+  if (!rejected.ok) return;
+  assert.equal(
+    rejected.generation.renderConfig?.rewrite,
+    "off",
+    "a config never claims a rewrite that was discarded",
+  );
+  assert.equal(rejected.generation.content?.kind, "podcast");
+  if (rejected.generation.content?.kind !== "podcast") return;
+  assert.ok(
+    !rejected.generation.content.script.some((segment) =>
+      segment.text.includes("So here is the thing about all of it."),
+    ),
+    "the extractive text is what got persisted",
+  );
+
+  // A runner that dies must not fail the job.
+  const crashed = await createResearchMediaGenerationFromMission({
+    ...source,
+    rewriteRunner: async () => {
+      throw new Error("codex exec exited 1");
+    },
+  });
+  assert.equal(crashed.ok, true);
+  if (!crashed.ok) return;
+  assert.equal(crashed.generation.renderConfig?.rewrite, "off");
+});
+
 test("narration turns respect the breath-unit cap across every podcast style", () => {
   for (const style of ["breakdown", "debate", "recap"] as const) {
     const content = draftPodcastContent(cadenceSource, "standard", style);
