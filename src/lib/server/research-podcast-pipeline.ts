@@ -3,6 +3,7 @@ import {
   type ResearchGenerationScriptSegment,
   type ResearchGenerationContent,
   type ResearchMediaRenderConfig,
+  type ResearchVoiceDelivery,
 } from "../research-generations.ts";
 import {
   runKokoro,
@@ -19,6 +20,7 @@ import { resolveSecret } from "../vault.ts";
 import {
   DEFAULT_ELEVENLABS_MODEL_ID,
   DEFAULT_ELEVENLABS_VOICE_ID,
+  elevenLabsVoiceSettings,
   isValidElevenLabsVoiceId,
 } from "../voice/elevenlabs-shared.ts";
 import {
@@ -286,6 +288,7 @@ async function synthesizeElevenLabs(
   text: string,
   requestedVoice: string | undefined,
   signal: AbortSignal,
+  delivery?: ResearchVoiceDelivery,
 ): Promise<{ bytes: Uint8Array; voice: string }> {
   const apiKey = resolveSecret("ELEVENLABS_API_KEY");
   if (!apiKey) throw new Error("Set ELEVENLABS_API_KEY in Vault settings.");
@@ -300,7 +303,11 @@ async function synthesizeElevenLabs(
     {
       method: "POST",
       headers: { "xi-api-key": apiKey, "content-type": "application/json" },
-      body: JSON.stringify({ text, model_id: DEFAULT_ELEVENLABS_MODEL_ID }),
+      body: JSON.stringify({
+        text,
+        model_id: DEFAULT_ELEVENLABS_MODEL_ID,
+        voice_settings: elevenLabsVoiceSettings(delivery),
+      }),
       signal: requestSignal,
     },
   );
@@ -315,10 +322,12 @@ export async function synthesizeResearchPodcastSegment(
   provider: "local" | "elevenlabs",
   voice: string | undefined,
   signal: AbortSignal,
+  /** Ignored by the local engines, which expose no equivalent controls. */
+  delivery?: ResearchVoiceDelivery,
 ): Promise<{ bytes: Uint8Array; voice: string }> {
   return provider === "local"
     ? synthesizeLocal(text, voice, signal)
-    : synthesizeElevenLabs(text, voice, signal);
+    : synthesizeElevenLabs(text, voice, signal, delivery);
 }
 
 export type PodcastMediaJobInput = {
@@ -334,6 +343,7 @@ export type PodcastPipelineDependencies = {
     provider: ResearchMediaRenderConfig["provider"],
     voice: string,
     signal: AbortSignal,
+    delivery?: ResearchVoiceDelivery,
   ) => Promise<{ bytes: Uint8Array; voice: string }>;
 };
 
@@ -341,7 +351,7 @@ export function createPodcastMediaJobDefinition(
   input: PodcastMediaJobInput,
   dependencies: PodcastPipelineDependencies = {},
 ): ResearchMediaJobDefinition {
-  const { provider, voice, voices, length } = input.renderConfig;
+  const { provider, voice, voices, length, delivery } = input.renderConfig;
   const synthesize =
     dependencies.synthesize ?? synthesizeResearchPodcastSegment;
   const voiceForSegment = (segment: ResearchGenerationScriptSegment): string =>
@@ -397,6 +407,7 @@ export function createPodcastMediaJobDefinition(
               provider,
               segmentVoice,
               context.signal,
+              delivery,
             );
             if (synthesized.voice !== segmentVoice) {
               throw new Error(

@@ -13,6 +13,7 @@ import {
   RESEARCH_GENERATION_STAGES,
   RESEARCH_GENERATION_STATUSES,
   validateCreateResearchGenerationInput,
+  RESEARCH_VOICE_DELIVERIES,
   validateResearchMediaRenderConfig,
 } from "./research-generations.ts";
 
@@ -116,6 +117,57 @@ test("media render configuration is kind-aware, trimmed, and bounded", () => {
       provider: "local",
       voice: "x".repeat(129),
       length: "brief",
+    }).ok,
+    false,
+  );
+});
+
+test("voice delivery is podcast-only, named, and optional", () => {
+  // Absent stays absent: configs stored before delivery existed must keep
+  // validating and must keep rendering exactly as they did.
+  assert.deepEqual(
+    validateResearchMediaRenderConfig("podcast", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "standard",
+    }),
+    {
+      ok: true,
+      value: {
+        provider: "elevenlabs",
+        voice: "21m00Tcm4TlvDq8ikWAM",
+        length: "standard",
+      },
+    },
+  );
+  for (const delivery of RESEARCH_VOICE_DELIVERIES) {
+    const result = validateResearchMediaRenderConfig("podcast", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "standard",
+      delivery,
+    });
+    assert.equal(result.ok, true, `${delivery} is a valid delivery`);
+    if (result.ok) assert.equal(result.value.delivery, delivery);
+  }
+  // An unknown name fails closed rather than falling back to a default: a
+  // render that silently ignored its configured delivery would be
+  // unreproducible from its own record.
+  assert.equal(
+    validateResearchMediaRenderConfig("podcast", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "standard",
+      delivery: "dramatic",
+    }).ok,
+    false,
+  );
+  assert.equal(
+    validateResearchMediaRenderConfig("short-video", {
+      provider: "elevenlabs",
+      voice: "21m00Tcm4TlvDq8ikWAM",
+      length: "brief",
+      delivery: "natural",
     }).ok,
     false,
   );

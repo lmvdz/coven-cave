@@ -26,6 +26,59 @@ export function isValidElevenLabsModelId(id: unknown): id is string {
   return typeof id === "string" && /^[a-z0-9_]{1,64}$/.test(id);
 }
 
+// ── Delivery → provider voice settings ───────────────────────────────────────
+
+/** The `voice_settings` block ElevenLabs accepts on a text-to-speech request. */
+export type ElevenLabsVoiceSettings = {
+  stability: number;
+  similarity_boost: number;
+  style: number;
+  use_speaker_boost: boolean;
+};
+
+/**
+ * Resolve a named delivery into provider settings.
+ *
+ * Sending no `voice_settings` at all leaves every render on whatever default
+ * the voice was saved with, which is neither recorded in the generation nor
+ * reproducible later — a podcast rendered twice from one config could differ
+ * because someone edited the voice in the ElevenLabs dashboard. Naming the
+ * delivery makes the render self-describing.
+ *
+ * `stability` trades consistency against expressiveness: high holds an even
+ * register and is what a dense technical read wants, low lets the model move
+ * more and suits narrative. `style` exaggerates the source voice's own
+ * characteristics and costs latency, so it stays at 0 except where it earns
+ * its keep.
+ */
+export function elevenLabsVoiceSettings(
+  delivery: "natural" | "steady" | "expressive" = "natural",
+): ElevenLabsVoiceSettings {
+  switch (delivery) {
+    case "steady":
+      return {
+        stability: 0.75,
+        similarity_boost: 0.75,
+        style: 0,
+        use_speaker_boost: true,
+      };
+    case "expressive":
+      return {
+        stability: 0.35,
+        similarity_boost: 0.75,
+        style: 0.45,
+        use_speaker_boost: true,
+      };
+    default:
+      return {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0,
+        use_speaker_boost: true,
+      };
+  }
+}
+
 // ── Account catalog (saved voices + available models) ────────────────────────
 
 export type ElevenLabsVoiceOption = { id: string; name: string; category?: string };
