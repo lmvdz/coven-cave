@@ -416,7 +416,7 @@ test("the configured delivery reaches every synthesized segment", async () => {
       }),
     },
     {
-      synthesize: async (text, _provider, voice, _signal, delivery) => {
+      synthesize: async (_text, _provider, voice, _signal, delivery) => {
         seen.push(delivery);
         return { bytes: wav([1, 2]), voice };
       },
@@ -436,7 +436,7 @@ test("the ElevenLabs request carries explicit voice settings for its delivery", 
   const bodies: Record<string, unknown>[] = [];
   globalThis.fetch = (async (_url: string, init: { body: string }) => {
     bodies.push(JSON.parse(init.body));
-    return new Response(wav([1, 2]));
+    return new Response(wav([1, 2]).slice().buffer as ArrayBuffer);
   }) as typeof globalThis.fetch;
   try {
     for (const delivery of ["natural", "steady", "expressive"] as const) {
