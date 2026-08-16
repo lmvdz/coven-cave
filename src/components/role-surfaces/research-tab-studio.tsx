@@ -35,6 +35,7 @@ import {
   type ResearchMediaLength,
   type ResearchMediaProvider,
   type ResearchPodcastStyle,
+  type ResearchNarrationRewrite,
   type ResearchPodcastModelId,
   type ResearchVoiceDelivery,
 } from "@/lib/research-generations";
@@ -77,6 +78,7 @@ export function ResearchTabStudio({ research, context, onNavigate }: ResearchTab
   const [mediaStyle, setMediaStyle] = useState<ResearchPodcastStyle>("breakdown");
   const [mediaDelivery, setMediaDelivery] = useState<ResearchVoiceDelivery>("natural");
   const [mediaModel, setMediaModel] = useState<ResearchPodcastModelId>("eleven_turbo_v2_5");
+  const [mediaRewrite, setMediaRewrite] = useState<ResearchNarrationRewrite>("off");
   const [mediaLength, setMediaLength] =
     useState<ResearchMediaLength>("standard");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -332,6 +334,7 @@ export function ResearchTabStudio({ research, context, onNavigate }: ResearchTab
               ...(configKind === "podcast" ? { style: mediaStyle } : {}),
               ...(configKind === "podcast" ? { delivery: mediaDelivery } : {}),
               ...(configKind === "podcast" ? { model: mediaModel } : {}),
+              ...(configKind === "podcast" ? { rewrite: mediaRewrite } : {}),
             },
           }
         : {}),
@@ -369,6 +372,7 @@ export function ResearchTabStudio({ research, context, onNavigate }: ResearchTab
     mediaProvider,
     mediaDelivery,
     mediaModel,
+    mediaRewrite,
     mediaStyle,
     mediaVoice,
   ]);
@@ -845,6 +849,8 @@ export function ResearchTabStudio({ research, context, onNavigate }: ResearchTab
           onMediaDeliveryChange={setMediaDelivery}
           mediaModel={mediaModel}
           onMediaModelChange={setMediaModel}
+          mediaRewrite={mediaRewrite}
+          onMediaRewriteChange={setMediaRewrite}
           mediaLength={mediaLength}
           onMediaLengthChange={setMediaLength}
           error={createError}

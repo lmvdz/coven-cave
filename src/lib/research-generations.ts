@@ -158,6 +158,15 @@ export function isResearchPodcastModelId(
  * resolves to concrete provider settings at render time, so a stored config
  * stays readable and survives a provider changing its parameter set.
  */
+export const RESEARCH_NARRATION_REWRITES = ["off", "spoken"] as const;
+export type ResearchNarrationRewrite = (typeof RESEARCH_NARRATION_REWRITES)[number];
+
+export function isResearchNarrationRewrite(
+  value: unknown,
+): value is ResearchNarrationRewrite {
+  return RESEARCH_NARRATION_REWRITES.includes(value as ResearchNarrationRewrite);
+}
+
 export const RESEARCH_VOICE_DELIVERIES = ["natural", "steady", "expressive"] as const;
 export type ResearchVoiceDelivery = (typeof RESEARCH_VOICE_DELIVERIES)[number];
 
@@ -198,6 +207,16 @@ export type ResearchMediaRenderConfig = {
    * default, so a stored config renders exactly as it did before this existed.
    */
   model?: ResearchPodcastModelId;
+  /**
+   * Podcast only: whether the extracted narration was rewritten into spoken
+   * register before drafting.
+   *
+   * Stored as what actually happened, not what was asked for. The rewrite is
+   * fenced by a fidelity check that can reject it, and a config claiming
+   * "spoken" over text that fell back to extraction would misdescribe its own
+   * render. Absent means "off".
+   */
+  rewrite?: ResearchNarrationRewrite;
 };
 
 export type ResearchGenerationProgress = {
@@ -317,6 +336,16 @@ export function validateResearchMediaRenderConfig(
     }
     model = value.model;
   }
+  let rewrite: ResearchNarrationRewrite | undefined;
+  if (value.rewrite !== undefined) {
+    if (kind !== "podcast") {
+      return { ok: false, error: "narration rewrite is only valid for podcasts" };
+    }
+    if (!isResearchNarrationRewrite(value.rewrite)) {
+      return { ok: false, error: "narration rewrite must be off or spoken" };
+    }
+    rewrite = value.rewrite;
+  }
   return {
     ok: true,
     value: {
@@ -327,6 +356,7 @@ export function validateResearchMediaRenderConfig(
       ...(style ? { style } : {}),
       ...(delivery ? { delivery } : {}),
       ...(model ? { model } : {}),
+      ...(rewrite ? { rewrite } : {}),
     },
   };
 }

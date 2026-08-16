@@ -48,6 +48,7 @@ import {
   type ResearchMediaLength,
   type ResearchMediaProvider,
   type ResearchPodcastStyle,
+  type ResearchNarrationRewrite,
   type ResearchPodcastModelId,
   type ResearchVoiceDelivery,
 } from "@/lib/research-generations";
@@ -527,6 +528,16 @@ export function GenerationReviewModal({
                 <dd>{generation.renderConfig.model}</dd>
               </div>
             ) : null}
+            {generation.renderConfig.rewrite ? (
+              <div>
+                <dt>Narration</dt>
+                <dd>
+                  {generation.renderConfig.rewrite === "spoken"
+                    ? "rewritten for speech"
+                    : "extracted wording"}
+                </dd>
+              </div>
+            ) : null}
             <div>
               <dt>Length</dt>
               <dd>{generation.renderConfig.length}</dd>
@@ -588,6 +599,8 @@ export function GenerationConfigModal({
   onMediaDeliveryChange,
   mediaModel,
   onMediaModelChange,
+  mediaRewrite,
+  onMediaRewriteChange,
   mediaLength,
   onMediaLengthChange,
   error,
@@ -618,6 +631,9 @@ export function GenerationConfigModal({
   /** Podcast-only provider model; ignored for video kinds. */
   mediaModel: ResearchPodcastModelId;
   onMediaModelChange: (model: ResearchPodcastModelId) => void;
+  /** Podcast-only spoken-register rewrite; ignored for video kinds. */
+  mediaRewrite: ResearchNarrationRewrite;
+  onMediaRewriteChange: (rewrite: ResearchNarrationRewrite) => void;
   mediaLength: ResearchMediaLength;
   onMediaLengthChange: (length: ResearchMediaLength) => void;
   /** Server-side create failure — e.g. the 409 "no markdown artifact" message. */
@@ -952,6 +968,37 @@ export function GenerationConfigModal({
                     : mediaModel === "eleven_multilingual_v2"
                       ? "Slower and steadier than Turbo across long reads."
                       : "Most expressive. A podcast render is offline, so latency costs nothing here."}
+                </span>
+              </div>
+            ) : null}
+
+            {kind === "podcast" ? (
+              <div className="research-studio-config__field">
+                <label
+                  className="research-studio-config__label"
+                  htmlFor="research-studio-config-rewrite"
+                >
+                  Narration
+                </label>
+                <select
+                  id="research-studio-config-rewrite"
+                  className="research-studio__select focus-ring"
+                  value={mediaRewrite}
+                  aria-describedby="research-studio-config-rewrite-help"
+                  onChange={(event) =>
+                    onMediaRewriteChange(event.target.value as ResearchNarrationRewrite)
+                  }
+                >
+                  <option value="off">Extracted wording</option>
+                  <option value="spoken">Rewritten for speech</option>
+                </select>
+                <span
+                  id="research-studio-config-rewrite-help"
+                  className="research-studio-config__hint"
+                >
+                  {mediaRewrite === "spoken"
+                    ? "Rewrites the findings into spoken register before drafting. Every number, name, and source anchor must survive or the extracted wording is kept."
+                    : "Speaks the findings in the artifact's own words."}
                 </span>
               </div>
             ) : null}

@@ -64,6 +64,11 @@ import type { ResearchArtifactRef, ResearchMission } from "../research-missions.
 import { caveHome } from "../coven-paths.ts";
 import { writeJsonAtomic } from "./atomic-write.ts";
 import { corruptAsidePath } from "./corrupt-aside.ts";
+import { createCodexRewriteRunner } from "./research-rewrite-runner.ts";
+import {
+  rewriteNarrationForSpeech,
+  type RewriteRunner,
+} from "./research-script-rewrite.ts";
 import { acquireProcessIntentLock } from "./process-intent-lock.ts";
 import {
   loadResearchMission,
@@ -983,6 +988,15 @@ function mediaNarrationSectionUnits(source: GenerationDraftSource): NarrationUni
   return lines;
 }
 
+/**
+ * The extracted narration texts, in drafting order — the exact input the
+ * spoken-register rewrite operates on. Exported so the rewrite runs against
+ * already-extracted content and never against the mission markdown.
+ */
+export function mediaNarrationUnitTexts(source: GenerationDraftSource): string[] {
+  return mediaNarrationSectionUnits(source).map((unit) => unit.text);
+}
+
 function mediaNarrationUnits(source: GenerationDraftSource): string[] {
   return mediaNarrationSectionUnits(source).map((unit) =>
     unit.title === null ? unit.text : `${speakable(unit.title)} ${unit.text}`,
@@ -994,9 +1008,20 @@ export function draftPodcastContent(
   source: GenerationDraftSource,
   length: ResearchMediaLength,
   style: ResearchPodcastStyle = "breakdown",
+  /**
+   * Replacement narration texts in `mediaNarrationUnitTexts` order. The drafter
+   * stays pure and synchronous: an asynchronous rewrite happens in the caller,
+   * and only its result arrives here. Section titles keep their extracted
+   * wording either way — a heading is structure, not narration.
+   */
+  narration?: readonly string[],
 ): ResearchGenerationContent {
   const budget = RESEARCH_MEDIA_LENGTH_LIMITS.podcast[length].maxCharacters;
-  const units = mediaNarrationSectionUnits(source);
+  const extracted = mediaNarrationSectionUnits(source);
+  const units =
+    narration && narration.length === extracted.length
+      ? extracted.map((unit, index) => ({ ...unit, text: narration[index] }))
+      : extracted;
   if (style === "recap") {
     // Recap is the original single-narrator read-through: one voice, no
     // dialogue turns, findings in source order.
@@ -1679,8 +1704,17 @@ export async function createResearchGenerationFromMission(
 /** Draft media source material synchronously, then hand the record to the
  * asynchronous runner. The queued row already contains the reviewable script
  * or storyboard, so a render never hides what will be spoken or shown. */
+/**
+ * Server-side create input. The rewrite runner is injected here rather than
+ * declared on the shared contract, which stays free of server imports.
+ */
+export type CreateResearchMediaGenerationInput = CreateResearchGenerationInput & {
+  /** Overridden in tests; production resolves the Codex-backed runner. */
+  rewriteRunner?: RewriteRunner;
+};
+
 export async function createResearchMediaGenerationFromMission(
-  input: CreateResearchGenerationInput,
+  input: CreateResearchMediaGenerationInput,
 ): Promise<ResearchGenerationDraftResult> {
   assertFamiliarId(input.familiarId);
   if (!isResearchGenerationMediaKind(input.kind)) {
@@ -1720,12 +1754,38 @@ export async function createResearchMediaGenerationFromMission(
       error: validatedConfig.error,
     };
   }
-  const renderConfig = validatedConfig.value;
+  let renderConfig = validatedConfig.value;
   let content: ResearchGenerationContent;
   switch (input.kind) {
-    case "podcast":
-      content = draftPodcastContent(draftSource, renderConfig.length, renderConfig.style);
+    case "podcast": {
+      // The rewrite is awaited here, before the record is persisted, so a
+      // reviewer never sees a draft that differs from what will be spoken.
+      // Drafting itself stays pure and synchronous; only the finished text
+      // crosses back into it.
+      let narration: string[] | undefined;
+      if (renderConfig.rewrite === "spoken") {
+        const extracted = mediaNarrationUnitTexts(draftSource);
+        const rewritten = await rewriteNarrationForSpeech(
+          extracted,
+          input.rewriteRunner ?? createCodexRewriteRunner(),
+        );
+        if (rewritten.applied) {
+          narration = rewritten.units;
+        } else {
+          // The stored config describes the render that actually happened. A
+          // config claiming "spoken" over text that fell back to extraction
+          // would misdescribe its own audio in the review surface.
+          renderConfig = { ...renderConfig, rewrite: "off" };
+        }
+      }
+      content = draftPodcastContent(
+        draftSource,
+        renderConfig.length,
+        renderConfig.style,
+        narration,
+      );
       break;
+    }
     case "short-video":
       if (renderConfig.length === "extended") {
         throw new Error("validated short-video config cannot be extended");
