@@ -1004,7 +1004,10 @@ export function draftPodcastContent(
       .map((unit) =>
         unit.title !== null ? `${speakable(unit.title)} ${unit.text}` : unit.text,
       )
-      .flatMap(splitMediaDraftText);
+      .flatMap(splitMediaDraftText)
+      // A single narrator declinates over a long read exactly as a guest turn
+      // does, so recap takes the same breath-unit cap the dialogue styles get.
+      .flatMap((chunk) => splitTurnByWordCap(chunk, DEFAULT_TURN_WORDS));
     const script: ResearchGenerationScriptSegment[] = [];
     let used = 0;
     for (const [index, text] of candidates.entries()) {
@@ -1263,6 +1266,23 @@ function sectionTakeaway(chunks: string[]): string | undefined {
 }
 
 /**
+ * Breath-unit cap applied to any narration turn whose style does not name its
+ * own. Human phonation runs 2.0–3.5s per breath (roughly 6–12 words), and a
+ * neural TTS engine given a long unbroken turn slides into continuous prosodic
+ * declination: pitch and energy fall with no cue to reset. Every turn is a
+ * separate synthesis request, so a turn boundary is a hard reset that a period
+ * inside one long request cannot match.
+ *
+ * 24 words is two breath units, not one, because `splitTurnByWordCap` only ever
+ * groups whole sentences: the cap decides how many sentences share a turn, and
+ * a one-breath cap would isolate every sentence including tightly coupled
+ * pairs. Before this default existed only `interview` capped its turns, so a
+ * `breakdown` episode could emit a single 58-word turn holding three sentences
+ * — measured on the 2026-08-16 baseline render.
+ */
+const DEFAULT_TURN_WORDS = 24;
+
+/**
  * Splits a chunk into sentence-bounded turns of at most `maxWords` words. A
  * single sentence over the cap stays whole — a turn never opens or closes
  * mid-sentence (cave-2emgc).
@@ -1349,9 +1369,10 @@ function draftDialogueScript(
       push(framing, "host");
       let guestTurnsInSection = 0;
       for (const chunk of chunks) {
-        const guestTurns = template.maxGuestTurnWords
-          ? splitTurnByWordCap(chunk, template.maxGuestTurnWords)
-          : [chunk];
+        const guestTurns = splitTurnByWordCap(
+          chunk,
+          template.maxGuestTurnWords ?? DEFAULT_TURN_WORDS,
+        );
         for (const turn of guestTurns) {
           if (guestTurnsInSection > 0 && template.interjection) {
             // A host reaction between guest turns only enters when the guest
